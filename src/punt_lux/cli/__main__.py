@@ -17,6 +17,7 @@ from punt_lux.cli._shared import (
 )
 from punt_lux.cli.hook_cli import HookCommands
 from punt_lux.cli.registry import PLUGIN_ID, register_subcommands
+from punt_lux.cli.repo_enablement import RepoCommands, repo_status
 
 
 def _version_callback(value: bool) -> None:
@@ -50,41 +51,7 @@ hook_app = typer.Typer(hidden=True)
 app.add_typer(hook_app, name="hook")
 register_subcommands(app)
 HookCommands.register(hook_app)
-
-
-# Product commands
-
-
-@app.command()
-def enable(
-    *,
-    # Accepted for surface parity; verbose/quiet not currently distinguished
-    # in this command, and it has no JSON payload beyond the one line below.
-    json_out: JsonFlag = False,
-    verbose: VerboseFlag = False,
-    quiet: QuietFlag = False,
-) -> None:
-    """Enable visual output for this project."""
-    from punt_lux.cli.display_enablement import DisplayEnablement
-
-    flags = OutputFlags(json_out=json_out, verbose=verbose, quiet=quiet)
-    DisplayEnablement(flags).apply(on=True)
-
-
-@app.command()
-def disable(
-    *,
-    # Accepted for surface parity; verbose/quiet not currently distinguished
-    # in this command, and it has no JSON payload beyond the one line below.
-    json_out: JsonFlag = False,
-    verbose: VerboseFlag = False,
-    quiet: QuietFlag = False,
-) -> None:
-    """Disable visual output for this project."""
-    from punt_lux.cli.display_enablement import DisplayEnablement
-
-    flags = OutputFlags(json_out=json_out, verbose=verbose, quiet=quiet)
-    DisplayEnablement(flags).apply(on=False)
+RepoCommands.register(app)
 
 
 @hook_app.command("session-start")
@@ -165,6 +132,7 @@ def status(
     dp = DisplayPaths(Path(socket) if socket else None)
     line = dp.running_status_line()
     if not quiet:
+        print(repo_status())
         print(
             line[:1].upper() + line[1:]
             if line
@@ -231,6 +199,7 @@ def doctor(
         _check(OPTIONAL, f"Display server not running at {path}", required=False)
 
     checks.plugin()
+    _check(OPTIONAL, repo_status(), required=False)
 
     if not quiet:
         print(_check.render())

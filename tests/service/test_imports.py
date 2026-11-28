@@ -68,7 +68,7 @@ _GENERIC = {
         ),
         "punt_lux.kernel.hub_paths",
         "punt_lux.kernel.hub_defaults",
-        "punt_lux.cli.display_enablement",
+        "punt_lux.cli.repo_enablement",
     ],
 )
 def test_relocated_module_imports_in_fresh_process(module: str) -> None:

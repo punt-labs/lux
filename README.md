@@ -351,15 +351,21 @@ but unloads the launchd registration.
 | `lux ping` | Ping the window through `luxd` and print the round-trip time |
 | `lux doctor` | Check installation health: Python version, the display packages, fonts, and the Claude Code plugin |
 | `lux version` | Print the version |
-| `lux enable` | Enable visual output for this project and add Lux's permission rules to `.claude/settings.json` ([rule list](docs/user-guide.md#permission-rules)) |
-| `lux disable` | Disable visual output for this project and remove those rules |
-| `lux status` | Check whether the window is running |
+| `lux enable [--scope project\|local]` | Enable Lux integration, deposit its guide and grant its [permission rules](docs/user-guide.md#permission-rules); defaults to personal (`local`) |
+| `lux disable [--scope project\|local]` | Withdraw integration in that scope; defaults to personal |
+| `lux status` | Report checkout integration and whether the window is running |
 | `lux install` | Install the Claude Code plugin from the marketplace |
 | `lux uninstall` | Uninstall the Claude Code plugin |
 | `lux beads` | Show the repository's beads issue board, with no agent involved (`--all` includes closed issues) |
 | `lux-beads` | The Beads menu applet; the plugin's session-start hook runs it for each session |
 
 The topic tools and `callback_pending` are MCP-only and have no CLI command.
+
+`/lux enable` and `/lux disable` use the same scopes. `/lux y` and `/lux n`
+change only your display preference in the main checkout; they do not change
+repository integration or start or stop services. See
+[repository integration](docs/user-guide.md#repository-integration) for
+refreshing the pinned guide and recording a team opt-out.
 
 ## Library (Python)
 
@@ -377,9 +383,9 @@ After installing this branch with the `terminal` extra, the operator chooses
 which machines run it:
 
 ```bash
-lux terminal enable    # install/start the local launchd/systemd service
+lux terminal install   # install/start the local launchd/systemd service
 lux terminal status    # read-only
-lux terminal disable   # stop held programs and remove service registration
+lux terminal uninstall # stop held programs and remove service registration
 ```
 
 The running daemon registers **Terminal** in Lux's menu, like voxd Music. The

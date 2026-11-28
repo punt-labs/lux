@@ -19,7 +19,7 @@ def _mock_config_manager(cfg: LuxConfig) -> MagicMock:
     """Build a mock ConfigManager whose read() returns *cfg*."""
     mgr = MagicMock()
     mgr.read.return_value = cfg
-    return MagicMock(return_value=mgr)
+    return MagicMock(for_display=MagicMock(return_value=mgr))
 
 
 def _ctx(result: dict[str, object]) -> str:
@@ -49,7 +49,7 @@ class TestHandleSessionStart:
         with (
             patch(
                 "punt_lux.service.session_start.ConfigManager",
-                side_effect=OSError("/private/alice"),
+                for_display=MagicMock(side_effect=OSError("/private/alice")),
             ),
             pytest.raises(OSError),
         ):

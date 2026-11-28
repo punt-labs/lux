@@ -1,39 +1,46 @@
 ---
-description: "Enable or disable lux"
-argument-hint: "y | n"
-allowed-tools: ["Bash", "mcp__plugin_lux_lux__display_mode_get", "mcp__plugin_lux_lux__scene_clear_all", "mcp__plugin_lux-dev_lux__display_mode_get", "mcp__plugin_lux-dev_lux__scene_clear_all", "mcp__lux__display_mode_get", "mcp__lux__scene_clear_all"]
+description: "Configure Lux integration and display preference"
+argument-hint: "enable [project|local] | disable [project|local] | y | n"
+allowed-tools: ["Bash", "mcp__plugin_lux_lux__enablement", "mcp__plugin_lux_lux__status", "mcp__plugin_lux_lux__scene_clear_all", "mcp__plugin_lux-dev_lux__enablement", "mcp__plugin_lux-dev_lux__status", "mcp__plugin_lux-dev_lux__scene_clear_all", "mcp__lux__enablement", "mcp__lux__status", "mcp__lux__scene_clear_all"]
 ---
 
 # /lux command
 
-Enable or disable visual output for this project.
+Configure Lux for the main checkout, including when the session started in a
+subdirectory or a linked git worktree.
 
 ## Usage
 
-- `/lux y` — enable visual output (consumers will render to the lux window)
-- `/lux n` — disable visual output, clear the display
-- `/lux` — show current display mode
+- `/lux enable [project|local]` — enable repository integration
+- `/lux disable [project|local]` — disable repository integration
+- `/lux y` / `/lux n` — change only the personal display preference
+- `/lux` — show repository integration and the display preference
 
 ## Implementation
 
-Parse `$ARGUMENTS`. Enabling and disabling display mode is a user action,
-so `/lux y` and `/lux n` run the CLI rather than an MCP tool — a client or
-agent may read the display mode but never modify it (DES-088). Every
-invocation must pass `--repo <cwd>` (replacing `<cwd>` with the absolute
-path of your current working directory) so the display-mode config is
-written to the caller's project, not to `luxd`'s process cwd — which is
-`$HOME` under launchd (see lux-r929).
+Parse `$ARGUMENTS`. Resolve `<repo>` from the first `worktree` record in
+`git worktree list --porcelain` (the main checkout; do not use the daemon's
+working directory). Always pass its absolute path, safely quoted in Bash.
+
+For `enable` or `disable`, call the `enablement` MCP tool with `repo="<repo>"`,
+`action="enable"` or `action="disable"` and `scope="local"` unless the user
+explicitly says `project`. An explicit `--refresh`, `--clear-opt-out`, or
+`--opt-out` maps to the corresponding boolean tool parameter. Report the
+result; do not commit changes for the user.
+
+For `y` or `n`, use the CLI: only a user action changes display preference
+(DES-088). It does not grant permissions or turn repo integration on.
 
 ### `y`
 
-Run the Bash command `lux display mode on --repo <cwd>`. Confirm: "Lux display enabled."
+Run `lux display mode on --repo <repo>`. Confirm: "Lux display preference: on."
 
 ### `n`
 
-1. Run the Bash command `lux display mode off --repo <cwd>`.
-2. Call the `scene_clear_all` MCP tool to dismiss the window.
-3. Confirm: "Lux display disabled."
+1. Run `lux display mode off --repo <repo>`.
+2. If repo integration is enabled, call `scene_clear_all` to dismiss the window.
+3. Confirm: "Lux display preference: off."
 
 ### No argument or unrecognized
 
-Call the `display_mode_get` MCP tool with `repo="<cwd>"` to read the current mode. Report: "Lux display mode: on" or "Lux display mode: off".
+Call `status` with `repo="<repo>"` and report its two lines.

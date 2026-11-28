@@ -1,4 +1,4 @@
-"""Machine-local opt-in terminal daemon: enable, disable, status and restart."""
+"""Machine-local opt-in terminal daemon: install, uninstall, status and restart."""
 
 from __future__ import annotations
 
@@ -19,12 +19,12 @@ class TerminalCommands:
             raise typer.Exit(1) from error
 
     @staticmethod
-    def enable() -> None:
+    def install() -> None:
         """Enable on this machine: install/start the supervised owner and launcher."""
         TerminalCommands._action(TerminalService().enable)
 
     @staticmethod
-    def disable() -> None:
+    def uninstall() -> None:
         """Disable here: stops held programs and removes supervisor registration."""
         TerminalCommands._action(TerminalService().disable)
 
@@ -41,8 +41,11 @@ class TerminalCommands:
 
 
 terminal_app = typer.Typer(help="Manage this machine's Terminal launcher.")
-terminal_app.command("enable")(TerminalCommands.enable)
-terminal_app.command("install", hidden=True)(TerminalCommands.enable)
-terminal_app.command("disable")(TerminalCommands.disable)
+terminal_app.command("install")(TerminalCommands.install)
+terminal_app.command("uninstall")(TerminalCommands.uninstall)
+terminal_app.command("enable", hidden=True, deprecated=True)(TerminalCommands.install)
+terminal_app.command("disable", hidden=True, deprecated=True)(
+    TerminalCommands.uninstall
+)
 terminal_app.command("restart")(TerminalCommands.restart)
 terminal_app.command("status")(TerminalCommands.status)

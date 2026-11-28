@@ -52,10 +52,37 @@ the MCP tools a session uses cannot own menu entries. An agent can still add
 its own menus with `menu_set`; those items raise one of the agent's frames or
 send a `lux.menu` event that the agent reads with `topic_recv`.
 
+## Repository Integration
+
+Run `lux enable` in a git checkout to turn Lux on for yourself. It writes an
+ignored marker and guide under `.punt-labs/local/lux/` and imports the guide in
+`CLAUDE.local.md`. The repository must have the Punt Labs gitignore baseline
+covering these directories, `CLAUDE.local.md`, `.claude/settings.local.json`
+and sibling `.*.punt-import.lock` files.
+
+Use `lux enable --scope project` to enable Lux for everyone and commit the
+marker, guide, import, and settings in a reviewed change. Use
+`lux enable --refresh` (and the appropriate scope) to update a pinned guide;
+starting a session or upgrading Lux never rewrites it.
+
+Personal `lux disable` turns off Lux in your checkout, even when it is
+enabled for the project. It cannot unload the shared guide or withdraw shared
+permissions. Use `lux disable --scope project --opt-out` to record a repo-wide
+opt-out, and `lux enable --scope project --clear-opt-out` to undo it. Use
+`lux status` or `lux doctor` to see which file decides the current state.
+
+When integration is off, Lux hooks do not run applets and repo-bound MCP tools
+are dormant apart from status and enablement. The personal display preference
+is independent: `/lux y` and `/lux n` write
+`.punt-labs/local/lux/display.local.md` in the main checkout. Lux reads the
+old `.punt-labs/lux.md` preference if no local preference exists; enabling
+copies the old value without changing the legacy file.
+
 ## Permission Rules
 
-`lux enable` writes these rules into the project's `.claude/settings.json`,
-and `lux disable` removes them.
+`lux enable` adds these rules to the checkout's `.claude/settings.local.json`,
+or to `.claude/settings.json` with `--scope project`. `lux disable` removes
+only the Lux entries in the matching scope.
 
 Allowed without a prompt:
 
@@ -68,7 +95,7 @@ Claude Code asks before running:
 - `lux install`, `uninstall`, `enable`, `disable`, and `hook`
 - `lux hub install`, `uninstall`, `start`, `stop`, `restart`, and `doctor`
 - `lux display install`, `uninstall`, `start`, `stop`, `restart`, `doctor`,
-  `serve`, and `mode`
+  and `serve`
 
 Each command is written as a `Bash(<command>:*)` rule, for example
 `Bash(lux hub restart:*)`. A command that starts with an option, such as

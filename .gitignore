@@ -91,6 +91,8 @@ demos/
 /prfaq.xdv
 /prfaq.fls
 
-# Biff private configuration (not Ethos-owned)
-.punt-labs/biff/config.local.yaml
+# Punt Labs personal integration and preferences
+.punt-labs/**/*.local.*
+CLAUDE.local.md
 *.punt-import.lock
+.*.punt-import.lock

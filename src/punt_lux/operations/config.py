@@ -26,7 +26,7 @@ class DisplayModeOperations:
         return super().__new__(cls)
 
     def read_display_mode(self, repo: str) -> DisplayModeState | OpError:
-        """Return the mode ``<repo>/.punt-labs/lux.md`` records, or an ``OpError``."""
+        """Return the project's personal display preference or an ``OpError``."""
         repo_error = DisplayModeRequest.check_repo(repo)
         if repo_error is not None:
             return repo_error

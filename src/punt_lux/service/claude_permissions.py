@@ -1,9 +1,9 @@
-"""lux's permission rules in a project's ``.claude/settings.json``.
+"""Lux's permission rules in a checkout's project or local settings.
 
 ``lux enable`` is the operator's explicit opt-in, so it -- not plugin startup
 -- grants Claude Code permission to call lux's MCP tools and slash commands
-without a prompt. The rules land in the enabled repo's
-``<repo>/.claude/settings.json`` only, never the user-global
+without a prompt. The rules land in the checkout's
+``.claude/settings.json`` or ``.claude/settings.local.json``, never the user-global
 ``~/.claude/settings.json``, and ``lux disable`` removes exactly the same set
 (punt-kit ``permissions.md`` §6). The ``lux-dev`` plugin's rules are never
 granted: maintainers add them by hand.
@@ -11,26 +11,26 @@ granted: maintainers add them by hand.
 
 from __future__ import annotations
 
-import contextlib
-import fcntl
 import json
-import os
-import stat
 import sys
-import tempfile
+from collections.abc import Generator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, Self, cast, final
 
+from punt_lux.service.activation_file import ActivationFile
 from punt_lux.service.permission_rules import LUX_RULES
+from punt_lux.service.repo_activation import Scope
 
 __all__ = ["PermissionChange", "ProjectPermissions"]
 
-_NEW_FILE_MODE: Final = 0o644
-
 # Rules an earlier lux enable granted and this one does not; grant and revoke
-# both strip them. ``Bash(lux -*)`` made ``lux --version`` prompt (DES-039).
-_LEGACY_RULES: Final[dict[str, tuple[str, ...]]] = {"ask": ("Bash(lux -*)",)}
+# both strip them. ``Bash(lux -*)`` made ``lux --version`` prompt (DES-039);
+# display mode now only changes a personal preference.
+_LEGACY_RULES: Final[dict[str, tuple[str, ...]]] = {
+    "ask": ("Bash(lux -*)", "Bash(lux display mode:*)")
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,7 +46,7 @@ class PermissionChange:
     error: str = ""
 
     def lines(self, verb: str) -> list[str]:
-        """Return a report line for the CLI and MCP surfaces, or none."""
+        """Return a report line, or none if nothing changed."""
         if self.error:
             return [f"Permissions not changed: {self.error}"]
         if self.changed:
@@ -55,34 +55,43 @@ class PermissionChange:
         return []
 
 
+@dataclass(frozen=True, slots=True)
+class PermissionEdit:
+    file: ActivationFile
+    data: bytes | None
+    changed: tuple[str, ...]
+
+    def commit(self) -> None:
+        if self.data is not None:
+            self.file.write(self.data)
+
+
 @final
 class ProjectPermissions:
-    """Add or remove :data:`LUX_RULES` in one repo's ``.claude/settings.json``.
+    """Add or remove :data:`LUX_RULES` in one checkout's scoped settings.
 
     The read-modify-write holds the tool-agnostic
     ``.settings.json.punt-import.lock`` (other punt tools edit the same file),
-    refuses a symlinked ``.claude/`` or ``settings.json`` so a planted link
-    cannot redirect the write out of the repo, appends in rule order without
+    follows symlinks to a user-selected settings target, inserts in order without
     reordering existing entries, and does not write when nothing changes.
     Every other key and rule in the file is preserved.
     """
 
-    __slots__ = ("_dir", "_file", "_root")
+    __slots__ = ("_file", "_root")
 
-    _dir: Path
-    _file: Path
+    _file: ActivationFile
     _root: Path
 
-    def __new__(cls, root: Path | str) -> Self:
+    def __new__(cls, root: Path | str, scope: Scope = "project") -> Self:
         """Bind the permission manager to a project root."""
         self = super().__new__(cls)
         self._root = Path(root)
-        self._dir = self._root / ".claude"
-        self._file = self._dir / "settings.json"
+        name = "settings.json" if scope == "project" else "settings.local.json"
+        self._file = ActivationFile(self._root / ".claude" / name)
         return self
 
     def grant(self) -> PermissionChange:
-        """Append each missing lux rule; return the rules added."""
+        """Insert each missing Lux rule; return the rules added."""
         return self._update(add=True)
 
     def revoke(self) -> PermissionChange:
@@ -90,11 +99,7 @@ class ProjectPermissions:
         return self._update(add=False)
 
     def report(self, *, add: bool, quiet: bool) -> None:
-        """Grant (``add``) or revoke the rules, reporting each change on stderr.
-
-        A refusal is always reported, ``quiet`` or not, and exits 1 so the
-        caller's own state change never runs without its permissions.
-        """
+        """Apply the rule change and report errors even in quiet mode."""
         change = self.grant() if add else self.revoke()
         if not quiet or change.error:
             for line in change.lines("added to" if add else "removed from"):
@@ -104,44 +109,31 @@ class ProjectPermissions:
 
     def _update(self, *, add: bool) -> PermissionChange:
         """Apply the grant or revoke under the lock, reporting any refusal."""
-        if self._root.resolve() == Path.home().resolve():
-            return PermissionChange(
-                error="the repo is the home directory, whose .claude/"
-                "settings.json is user-global"
-            )
         try:
-            if not self._settings_present() and not add:
-                return PermissionChange()
-            self._dir.mkdir(exist_ok=True)
-            lock_path = self._dir / ".settings.json.punt-import.lock"
-            flags = os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW
-            with os.fdopen(os.open(lock_path, flags, 0o600), "w") as lock:
-                fcntl.flock(lock, fcntl.LOCK_EX)
-                return PermissionChange(changed=self._apply(add=add))
+            with self.prepare(add=add) as edit:
+                edit.commit()
+                return PermissionChange(changed=edit.changed)
         except ValueError as exc:
             return PermissionChange(error=str(exc))
         except OSError as exc:
             return PermissionChange(error=exc.strerror or type(exc).__name__)
 
-    def _settings_present(self) -> bool:
-        """Return whether ``settings.json`` exists; refuse symlinks.
+    @contextmanager
+    def prepare(self, *, add: bool) -> Generator[PermissionEdit]:
+        """Validate and plan a settings update while holding the settings lock."""
+        if self._root.resolve() == Path.home().resolve():
+            msg = (
+                "the repo is the home directory, whose Claude settings are user-global"
+            )
+            raise ValueError(msg)
+        if not add and not self._file.path.exists():
+            yield PermissionEdit(self._file, None, ())
+            return
+        with self._file.locked():
+            yield self._plan(add=add)
 
-        Runs before the lock is taken: the lock file lives in ``.claude/``, so
-        a ``.claude`` symlink would place it outside the repo, and a revoke
-        with no settings file must not create ``.claude/``.
-        """
-        for path, name in ((self._dir, ".claude"), (self._file, "settings.json")):
-            try:
-                mode = os.lstat(path).st_mode
-            except FileNotFoundError:
-                return False
-            if stat.S_ISLNK(mode):
-                msg = f"{name} is a symlink; refusing to edit through it"
-                raise ValueError(msg)
-        return True
-
-    def _apply(self, *, add: bool) -> tuple[str, ...]:
-        """Edit each tier in place and write the file back if a rule changed."""
+    def _plan(self, *, add: bool) -> PermissionEdit:
+        """Edit each tier in memory and serialize only if a rule changed."""
         settings = self._read()
         changed = tuple(
             rule
@@ -151,16 +143,30 @@ class ProjectPermissions:
             )
         )
         retired = self._retire_legacy(settings)
-        if changed or retired:
-            self._write(json.dumps(settings, indent=2) + "\n")
-        return changed if add else (*changed, *retired)
+        data = (
+            (json.dumps(settings, indent=2) + "\n").encode()
+            if changed or retired
+            else None
+        )
+        return PermissionEdit(
+            self._file, data, changed if add else (*changed, *retired)
+        )
 
     @staticmethod
     def _edit(rules: list[object], owned: tuple[str, ...], *, add: bool) -> list[str]:
         """Add the missing *owned* rules to *rules*, or remove them; return those."""
         if add:
             added = [rule for rule in owned if rule not in rules]
-            rules.extend(added)
+            for rule in sorted(added):
+                index = next(
+                    (
+                        i
+                        for i, value in enumerate(rules)
+                        if isinstance(value, str) and value > rule
+                    ),
+                    len(rules),
+                )
+                rules.insert(index, rule)
             return added
         removed = [rule for rule in owned if rule in rules]
         rules[:] = [rule for rule in rules if rule not in owned]
@@ -178,7 +184,7 @@ class ProjectPermissions:
     def _read(self) -> dict[str, object]:
         """Return the parsed settings, ``{}`` when absent; refuse a non-object."""
         try:
-            data: object = json.loads(self._file.read_text(encoding="utf-8"))
+            data: object = json.loads(self._file.path.read_text(encoding="utf-8"))
         except FileNotFoundError:
             return {}
         except json.JSONDecodeError as exc:
@@ -212,26 +218,3 @@ class ProjectPermissions:
             msg = f".claude/settings.json 'permissions.{tier}' is not a list"
             raise ValueError(msg)
         return cast("list[object]", rules)
-
-    def _write(self, text: str) -> None:
-        """Replace ``settings.json`` atomically, keeping an existing mode."""
-        mode = (
-            stat.S_IMODE(self._file.stat().st_mode)
-            if self._file.is_file()
-            else _NEW_FILE_MODE
-        )
-        fd, tmp_name = tempfile.mkstemp(
-            dir=self._dir, prefix=".settings.json.", suffix=".tmp"
-        )
-        tmp = Path(tmp_name)
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                handle.write(text)
-                handle.flush()
-                os.fsync(handle.fileno())
-            tmp.chmod(mode)
-            tmp.replace(self._file)
-        except BaseException:
-            with contextlib.suppress(OSError):
-                tmp.unlink(missing_ok=True)
-            raise

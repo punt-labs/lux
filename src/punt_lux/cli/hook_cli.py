@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import final
 
 import typer
@@ -9,6 +10,7 @@ import typer
 from punt_lux.kernel.logging_config import configure_logging
 from punt_lux.service.applet_event import AppletEvent, AppletRecords
 from punt_lux.service.hooks import emit, handle_session_start
+from punt_lux.service.repo_activation import Checkout
 
 
 @final
@@ -25,6 +27,8 @@ class HookCommands:
     @staticmethod
     def session_start() -> None:
         """Return display context without waiting for hook stdin to close."""
+        if Checkout.enabled_at(Path.cwd()) is None:
+            return
         configure_logging("lux", "hook")
         emit(handle_session_start())
 

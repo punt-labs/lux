@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from pathlib import Path
 from typing import Self, final
 
 import typer
@@ -28,6 +29,7 @@ from punt_lux.applets.program import AppletProgram
 from punt_lux.applets.watch import NoSession, SessionWatch
 from punt_lux.beads.beads_service import BeadsService
 from punt_lux.kernel.logging_config import process_diagnostics
+from punt_lux.service.repo_activation import Checkout
 
 logger = logging.getLogger(__name__)
 
@@ -56,13 +58,14 @@ class BeadsApplet:
         return self
 
     @classmethod
-    def for_session(cls, session_pid: int) -> Self:
+    def for_session(cls, session_pid: int, checkout: Checkout | None = None) -> Self:
         """Assemble the applet for the session that spawned it, and bound to it."""
+        watch = SessionWatch(session_pid)
         return cls(
             AppletProgram(
                 SessionClaim.for_session(_PROGRAM, session_pid),
                 cls._leg_for(session_pid),
-                SessionWatch(session_pid),
+                watch if checkout is None else BeadsSessionWatch(watch, checkout),
             )
         )
 
@@ -87,6 +90,25 @@ class BeadsApplet:
         await self._program.run()
 
 
+@final
+class BeadsSessionWatch:
+    """End a session applet when either Claude exits or Lux is disabled."""
+
+    _checkout: Checkout
+    _process: SessionWatch
+    __slots__ = ("_checkout", "_process")
+
+    def __new__(cls, process: SessionWatch, checkout: Checkout) -> Self:
+        self = super().__new__(cls)
+        self._process = process
+        self._checkout = checkout
+        return self
+
+    async def until_session_ends(self) -> None:
+        while self._process.session_is_alive and self._checkout.state().enabled:
+            await asyncio.sleep(5)
+
+
 @app.command()
 def main(
     session_pid: int = typer.Option(
@@ -101,10 +123,13 @@ def main(
     hook that spawns it always passes one. Its absence means a developer running
     the applet by hand in a terminal, where the terminal is the tie.
     """
+    checkout = Checkout.enabled_at(Path.cwd()) if session_pid > 0 else None
+    if session_pid > 0 and checkout is None:
+        return
     with process_diagnostics("worker", "Beads applet"):
         logger.info("Starting Beads applet (session pid=%d)", session_pid)
         applet = (
-            BeadsApplet.for_session(session_pid)
+            BeadsApplet.for_session(session_pid, checkout)
             if session_pid > 0
             else BeadsApplet.unattended()
         )

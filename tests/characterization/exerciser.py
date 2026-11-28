@@ -19,6 +19,7 @@ A ``setup`` dict has this shape::
 
     {
         "display_running": bool,                # patches DisplayPaths.is_running
+        "standalone_repo": bool,                # fixture is not a nested checkout
         "time": float,                          # patches time.time when set
         "session_key": str,                     # ContextVar override (optional)
         "client": {                             # stub DisplayLink method specs
@@ -381,6 +382,13 @@ class ToolExerciser:
             stubs.append(
                 mock.patch(
                     "punt_lux.operations.display_connection.time", _StubTime(float(now))
+                )
+            )
+
+        if setup.get("standalone_repo"):
+            stubs.append(
+                mock.patch(
+                    "punt_lux.service.repo_activation.Checkout.find", return_value=None
                 )
             )
 

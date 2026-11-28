@@ -1,9 +1,4 @@
-"""Centralized read/write for .punt-labs/lux.md YAML frontmatter.
-
-Python components that need config (e.g. server, CLI) import from here.
-Shell hooks (e.g. ``hooks/*.sh``) read the same file via their own
-bash-based reader.  The canonical path is ``.punt-labs/lux.md`` in the
-repo root.  All fields return safe defaults when the file is missing.
+"""Read/write the local Lux display preference.
 
 Only the YAML frontmatter block (between the first ``---`` and the
 next ``---``) is parsed.  Markdown body content is ignored.
@@ -11,62 +6,41 @@ next ``---``) is parsed.  Markdown body content is ignored.
 
 from __future__ import annotations
 
-import functools
 import logging
 import re
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Self
+from typing import Literal, Self
+
+from punt_lux.service.repo_activation import PERSONAL, Checkout
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_CONFIG_PATH = Path(".punt-labs/lux.md")
+DEFAULT_CONFIG_PATH = PERSONAL / "display.local.md"
+LEGACY_CONFIG_PATH = Path(".punt-labs/lux.md")
 
 ALLOWED_CONFIG_KEYS: frozenset[str] = frozenset({"display"})
 
 _FIELD_RE = re.compile(r'^([a-z_]+):\s*"?([^"\n]*)"?\s*$', re.MULTILINE)
 
 
-@functools.lru_cache(maxsize=1)
 def resolve_config_path() -> Path:
-    """Resolve .punt-labs/lux.md at the main repo root (worktree-safe).
-
-    Uses ``git rev-parse --git-common-dir`` to find the shared git
-    directory, then resolves to its parent.  Falls back to cwd-relative
-    ``.punt-labs/lux.md`` when git is unavailable or not in a repo.
-
-    Result is cached for the process lifetime.
-    """
+    """Resolve the display preference in the main checkout."""
     try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--git-common-dir"],
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=5,
-        )
-        git_common = result.stdout.strip()
-        if git_common:
-            return Path(git_common).resolve().parent / ".punt-labs" / "lux.md"
-    except (
-        subprocess.CalledProcessError,
-        FileNotFoundError,
-        subprocess.TimeoutExpired,
-    ):
-        pass
-    return DEFAULT_CONFIG_PATH
+        return Checkout.resolve(Path.cwd(), main=True).root / DEFAULT_CONFIG_PATH
+    except ValueError:
+        return DEFAULT_CONFIG_PATH
 
 
 @dataclass(frozen=True, slots=True)
 class LuxConfig:
-    """Snapshot of all config fields from .punt-labs/lux.md."""
+    """Snapshot of the display preference."""
 
-    display: str  # "y" | "n"
+    display: Literal["y", "n"]
 
 
 class ConfigManager:
-    """Read and write .punt-labs/lux.md YAML frontmatter fields."""
+    """Read and write a display preference in YAML frontmatter."""
 
     _config_path: Path
 
@@ -80,6 +54,19 @@ class ConfigManager:
     def path(self) -> Path:
         """Return the resolved config file path."""
         return self._config_path
+
+    @classmethod
+    def for_display(cls, root: Path, *, main: Path | None = None) -> Self:
+        """Prefer the main checkout's local preference, then legacy files."""
+        main = root if main is None else main
+        local = main / DEFAULT_CONFIG_PATH
+        legacy = root / LEGACY_CONFIG_PATH
+        return cls(
+            next(
+                (path for path in (local, legacy) if path.exists()),
+                main / LEGACY_CONFIG_PATH,
+            )
+        )
 
     @staticmethod
     def _extract_frontmatter(text: str) -> str:
@@ -107,11 +94,7 @@ class ConfigManager:
                 if val:
                     fields[key] = val
 
-        display = fields.get("display", "n")
-        if display not in ("y", "n"):
-            display = "n"
-
-        return LuxConfig(display=display)
+        return LuxConfig(display="y" if fields.get("display") == "y" else "n")
 
     def write_field(self, key: str, value: str) -> None:
         """Write a single YAML frontmatter field to the config file.
@@ -138,7 +121,8 @@ class ConfigManager:
             )
             return
 
-        text = path.read_text(encoding="utf-8")
+        original = path.read_text(encoding="utf-8")
+        text = original
 
         if not text.startswith("---"):
             logger.warning("Malformed config (no opening ---): %s", path)
@@ -171,5 +155,6 @@ class ConfigManager:
         if not text.endswith("\n"):
             text += "\n"
 
-        path.write_text(text, encoding="utf-8")
-        logger.info("Config: set %s = %r in %s", key, value, path)
+        if text != original:
+            path.write_text(text, encoding="utf-8")
+            logger.info("Config: set %s = %r in %s", key, value, path)

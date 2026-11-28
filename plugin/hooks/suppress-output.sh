@@ -8,6 +8,10 @@
 # No `set -euo pipefail` — hooks must degrade gracefully on
 # malformed input rather than failing the tool call.
 
+# shellcheck source=plugin/hooks/repo-enabled.sh
+source "$(dirname "$0")/repo-enabled.sh"
+lux_repo_enabled || exit 0
+
 INPUT=$(cat)
 TOOL=$(echo "$INPUT" | jq -r '.tool_name')
 TOOL_NAME="${TOOL##*__}"

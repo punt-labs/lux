@@ -158,6 +158,11 @@ def _run_tree(tmp_path: Path, *, claude_comm: str) -> tuple[int, int, int]:
 
     Returns (claude_pid, wrapper_pid, resolved_session_pid).
     """
+    git = shutil.which("git") or "/usr/bin/git"
+    subprocess.run([git, "init", "-q", str(tmp_path)], check=True)
+    marker = tmp_path / ".punt-labs/lux/enabled"
+    marker.parent.mkdir(parents=True)
+    marker.touch()
     relay_sh = tmp_path / "relay.sh"
     relay_sh.write_text(_RELAY_SH, encoding="utf-8")
     _make_executable(relay_sh)
@@ -185,6 +190,7 @@ def _run_tree(tmp_path: Path, *, claude_comm: str) -> tuple[int, int, int]:
 
     proc = subprocess.Popen(
         [claude_bin.name, str(relay_sh), "bash", str(relay_sh), "bash", str(_SCRIPT)],
+        cwd=tmp_path,
         env=env,
     )
     claude_pid = proc.pid
