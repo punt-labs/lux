@@ -328,6 +328,53 @@ def test_display_preference_uses_invoking_worktree_when_main_is_bare(
     assert git(linked, "status", "--porcelain") == ""
 
 
+def test_occupied_manifest_leaves_enablement_files_untouched(
+    checkout: Checkout,
+) -> None:
+    directory = checkout.root / SHARED
+    (directory / ".vendored-manifest").mkdir(parents=True)
+    with pytest.raises(IsADirectoryError):
+        Enablement(checkout, "project").apply("enable")
+    assert not (directory / "enabled").exists()
+    assert not (directory / "CLAUDE.md").exists()
+    assert not (checkout.root / "CLAUDE.md").exists()
+    assert not (checkout.root / ".claude/settings.json").exists()
+    assert git(checkout.root, "status", "--porcelain") == ""
+
+
+@pytest.mark.parametrize("filename", [".vendored-manifest", "enabled"])
+def test_late_enable_write_failure_restores_existing_files(
+    checkout: Checkout, monkeypatch: pytest.MonkeyPatch, filename: str
+) -> None:
+    directory = checkout.root / SHARED
+    directory.mkdir(parents=True)
+    host = checkout.root / "CLAUDE.md"
+    target = checkout.root / "user-notes.md"
+    target.write_bytes(b"User notes\r\n")
+    target.chmod(0o640)
+    host.symlink_to(target)
+    settings = checkout.root / ".claude/settings.json"
+    settings.parent.mkdir()
+    settings.write_bytes(b'{"permissions":{"allow":["Bash(echo hello)"]}}\n')
+    original = settings.read_bytes()
+    write = ActivationFile.write
+
+    def fail_write(file: ActivationFile, data: bytes) -> None:
+        if file.path == directory / filename:
+            msg = "simulated late write failure"
+            raise OSError(msg)
+        write(file, data)
+
+    monkeypatch.setattr(ActivationFile, "write", fail_write)
+    with pytest.raises(OSError, match="late write failure"):
+        Enablement(checkout, "project").apply("enable")
+    assert host.is_symlink()
+    assert target.read_bytes() == b"User notes\r\n"
+    assert target.stat().st_mode & 0o777 == 0o640
+    assert settings.read_bytes() == original
+    assert list(directory.iterdir()) == []
+
+
 @pytest.mark.parametrize("action", ["enable", "disable"])
 def test_invalid_settings_leave_integration_untouched(
     checkout: Checkout, action: Action

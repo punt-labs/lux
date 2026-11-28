@@ -2,17 +2,15 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from dataclasses import dataclass, replace
-from importlib.resources import files
 from pathlib import Path
 from typing import Literal
 
 from punt_lux.service.activation_file import ActivationFile
 from punt_lux.service.claude_import import ClaudeImport
-from punt_lux.service.claude_permissions import ProjectPermissions
 from punt_lux.service.display_preference import DisplayPreference
+from punt_lux.service.enablement_files import EnablementFiles, VendoredGuide
 from punt_lux.service.repo_activation import (
     PERSONAL,
     SHARED,
@@ -82,39 +80,43 @@ class Enablement:
             raise ValueError(msg)
         if self._inherits_shared:
             return self._enable_inherited(refresh=refresh)
-        guide = VendoredGuide(self.directory)
+        guide = self._guide
         self._check_personal_paths(guide)
         content = guide.prepare(refresh=refresh)
-        self._edit_integration(add=True)
-        guide.deposit(content)
-        self._mark(self.directory / "enabled")
-        if self.scope == "local":
-            self._unmute()
-        if clear_opt_out:
-            opting_out.unlink(missing_ok=True)
+        with self._files.integration(add=True) as batch:
+            guide.deposit(content, batch=batch)
+            batch.mark(self.directory / "enabled")
+            if self.scope == "local":
+                self._unmute()
+            if clear_opt_out:
+                opting_out.unlink(missing_ok=True)
         self._migrate_display()
         return None
 
     def _enable_inherited(self, *, refresh: bool) -> str | None:
         notice = None
-        if refresh:
-            guide = VendoredGuide(self.directory)
-            if self.imports.references(guide.guide):
-                self.checkout.require_private(*guide.paths, self._muted)
-                guide.deposit(guide.prepare(refresh=True))
-            else:
-                notice = "No active local Lux guide to refresh; guide files unchanged."
-        self._unmute()
+        with EnablementFiles.writes() as batch:
+            if refresh:
+                guide = self._guide
+                if self.imports.references(guide.guide):
+                    self.checkout.require_private(*guide.paths, self._muted)
+                    guide.deposit(guide.prepare(refresh=True), batch=batch)
+                else:
+                    notice = (
+                        "No active local Lux guide to refresh; guide files unchanged."
+                    )
+            self._unmute()
         return notice
 
     def _disable(self, *, opt_out: bool) -> None:
         self._check_personal_paths()
-        self._edit_integration(add=False)
+        self._files.remove()
         (self.directory / "enabled").unlink(missing_ok=True)
-        if self._inherits_shared:
-            self._mark(self._muted)
-        if opt_out:
-            self._mark(self._opting_out)
+        with EnablementFiles.writes() as batch:
+            if self._inherits_shared:
+                batch.mark(self._muted)
+            if opt_out:
+                batch.mark(self._opting_out)
 
     def _migrate_display(self) -> None:
         try:
@@ -138,60 +140,10 @@ class Enablement:
         guide_paths = () if guide is None else guide.paths
         self.checkout.require_private(*hosts, *markers, *guide_paths)
 
-    def _edit_integration(self, *, add: bool) -> None:
-        imports = self.imports
-        permissions = ProjectPermissions(self.checkout.root, self.scope)
-        with imports.prepare(add=add) as data, permissions.prepare(add=add) as edit:
-            if data is not None:
-                imports.host.write(data)
-            edit.commit()
-
-    @staticmethod
-    def _mark(path: Path) -> None:
-        if not path.exists():
-            ActivationFile(path).write(b"")
-
-
-@dataclass(frozen=True, slots=True)
-class VendoredGuide:
-    directory: Path
+    @property
+    def _files(self) -> EnablementFiles:
+        return EnablementFiles(self.imports, self.checkout.root, self.scope)
 
     @property
-    def guide(self) -> ActivationFile:
-        return ActivationFile(self.directory / "CLAUDE.md")
-
-    @property
-    def inventory(self) -> ActivationFile:
-        return ActivationFile(self.directory / ".vendored-manifest")
-
-    @property
-    def paths(self) -> tuple[Path, Path]:
-        return self.guide.path, self.inventory.path
-
-    def _check_refresh(self) -> None:
-        if (recorded := self.inventory.read()) is None:
-            return
-        previous: object = json.loads(recorded)
-        if previous not in ([], ["CLAUDE.md"]):
-            msg = f"Unexpected vendored paths in {self.inventory.path}"
-            raise ValueError(msg)
-        if previous == [] and self.guide.read() is not None:
-            msg = f"Unowned guide path is occupied: {self.guide.path}"
-            raise ValueError(msg)
-
-    def prepare(self, *, refresh: bool) -> bytes | None:
-        if refresh:
-            self._check_refresh()
-        original = self.guide.read()
-        if original is not None and not refresh:
-            return None
-        content = files("punt_lux.service").joinpath("lux-guide.md").read_bytes()
-        if original not in (None, content) and self.inventory.read() is None:
-            logger.warning("Replacing previously deposited guide %s", self.guide.path)
-        return content
-
-    def deposit(self, content: bytes | None) -> None:
-        if content is None:
-            return
-        self.guide.write(content)
-        self.inventory.write(b'["CLAUDE.md"]\n')
+    def _guide(self) -> VendoredGuide:
+        return VendoredGuide(self.directory)

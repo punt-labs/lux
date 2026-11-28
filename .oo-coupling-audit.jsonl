@@ -418,3 +418,5 @@
 {"ts":"2026-11-28T06:28:49Z","commit":"61d8ee36","source":null,"files_scored":19,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
 {"ts":"2026-11-28T07:03:54Z","commit":"71b9f34c","source":null,"files_scored":1010,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{},"backfilled":["src/punt_lux/cli/types.py"]}
 {"ts":"2026-11-28T07:03:55Z","commit":"71b9f34c","source":null,"files_scored":19,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
+{"ts":"2026-11-28T07:50:12Z","commit":"ecdf8515","source":null,"files_scored":1011,"files_improved":1,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{"src/punt_lux/service/enablement.py":{"public_names":[3.0,2.0]}},"backfilled":["src/punt_lux/service/enablement_files.py"]}
+{"ts":"2026-11-28T07:50:12Z","commit":"ecdf8515","source":null,"files_scored":19,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
