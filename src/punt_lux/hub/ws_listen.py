@@ -47,7 +47,11 @@ from punt_lux.wire.model.messages.listen import (
     ServerFrame,
     SubscribeFrame,
 )
-from punt_lux.wire.model.messages.relay_frames import RefusalFrame, ReplyFrame
+from punt_lux.wire.model.messages.relay_frames import (
+    RefusalFrame,
+    ReplyFrame,
+    RequestFrame,
+)
 
 if TYPE_CHECKING:
     from punt_lux.hub.call_entry import SessionTicket
@@ -279,6 +283,10 @@ class HubListenSession:
         """
         while True:
             frame = await self._outbound.get()
+            if isinstance(frame, RequestFrame) and not self._calls.is_pending(
+                frame.request_id
+            ):
+                continue  # its call ended while it waited; the provider must not run it
             try:
                 await self._ws.send_text(frame.model_dump_json())
             except (WebSocketDisconnect, RuntimeError):

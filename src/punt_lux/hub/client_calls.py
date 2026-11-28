@@ -210,6 +210,11 @@ class ClientCalls:
         entry.wake()
         return outcome
 
+    def is_pending(self, request_id: str) -> bool:
+        """Whether ``request_id``'s call still awaits an outcome."""
+        with self._lock:
+            return request_id in self._pending
+
     def _resolve(
         self, ticket: SessionTicket, request_id: str, outcome: CallOutcome
     ) -> bool:

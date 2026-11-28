@@ -26,7 +26,13 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
-from punt_lux.hub.call_outcomes import Lost, ProviderBusyError, Refused, Replied
+from punt_lux.hub.call_outcomes import (
+    Lost,
+    ProviderBusyError,
+    Refused,
+    Replied,
+    TimedOut,
+)
 from punt_lux.hub.callback_hold import CallbackRouter
 from punt_lux.hub.callback_menu import CallbackMenu
 from punt_lux.hub.callback_ports import CallbackListener
@@ -124,7 +130,10 @@ class _Wiring:
     calls: ClientCalls
 
 
-def _wired(clock: Callable[[], float] = time.monotonic) -> _Wiring:
+def _wired(
+    clock: Callable[[], float] = time.monotonic,
+    call_clock: Callable[[], float] = time.monotonic,
+) -> _Wiring:
     hub = Hub()
     factory = HubStoreFactory(clock=clock, hub=hub)
     display = factory.display
@@ -134,7 +143,7 @@ def _wired(clock: Callable[[], float] = time.monotonic) -> _Wiring:
     menus = _MenuFlag()
     lifecycle.present_as(menus, MarkMenusSink(menus))
     app = FastAPI()
-    calls = ClientCalls(boot="t")
+    calls = ClientCalls(boot="t", clock=call_clock)
     HubListenTransport(hub, lifecycle, router, calls).mount(app)
     return _Wiring(
         TestClient(app), hub, clients, display, router, menus, lifecycle, calls
@@ -1063,3 +1072,32 @@ def test_a_session_whose_writer_has_ended_ends_and_its_calls_are_lost(
         outcome = call.wait()
 
     assert outcome == Lost()
+
+
+def test_a_request_whose_call_ended_while_it_was_queued_is_never_sent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    now = [0.0]
+    wired = _wired(call_clock=lambda: now[0])
+    release = threading.Event()
+    with wired.client.websocket_connect("/ws", headers=_HEADERS) as ws:
+        ws.receive_json()  # ready
+        session = _session_of(wired)
+        socket = session._ws  # the one place a test can hold the socket's writer
+        send = socket.send_text
+
+        async def held(text: str) -> None:
+            await asyncio.to_thread(release.wait)
+            await send(text)
+
+        monkeypatch.setattr(socket, "send_text", held)  # a backed-up socket
+        first = session.relay("terminal", "ls", {})
+        stale = session.relay("terminal", "ls", {})
+        now[0] += ClientCalls.DEADLINE_S + 1  # the second call's deadline passes
+        assert stale.wait() == TimedOut()
+        release.set()
+        third = session.relay("terminal", "ls", {})
+
+        sent = [ws.receive_json()["request_id"] for _ in range(2)]
+
+    assert sent == [first.frame.request_id, third.frame.request_id]

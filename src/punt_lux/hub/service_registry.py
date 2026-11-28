@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, Self, final
 
 if TYPE_CHECKING:
+    from punt_lux.hub.callback_ports import CallbackListener
     from punt_lux.kernel.connection_id import ConnectionId
 
 __all__ = ["ServiceClaim", "ServiceKey", "ServiceRegistry"]
@@ -34,29 +35,43 @@ class ServiceKey:
 
 @final
 class ServiceRegistry:
-    """The ``(service, host)`` keys and the connections that hold them."""
+    """The ``(service, host)`` keys, the connections that hold them, and their legs.
+
+    A registration records the leg that made it, so a request goes to that leg and
+    never to a later one that replaced it on the same connection.
+    """
 
     _holders: dict[ServiceKey, ConnectionId]
-    __slots__ = ("_holders",)
+    _legs: dict[ServiceKey, CallbackListener]
+    __slots__ = ("_holders", "_legs")
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
         self._holders = {}
+        self._legs = {}
         return self
 
-    def claim(self, key: ServiceKey, connection_id: ConnectionId) -> ServiceClaim:
-        """Take ``key`` for ``connection_id``, or report that another holds it."""
+    def claim(
+        self, key: ServiceKey, connection_id: ConnectionId, leg: CallbackListener
+    ) -> ServiceClaim:
+        """Take ``key`` for ``connection_id``'s ``leg``, or report who holds it."""
         holder = self._holders.get(key)
         if holder is not None and holder != connection_id:
             return "held"
         self._holders[key] = connection_id
+        self._legs[key] = leg
         return "registered"
+
+    def leg_of(self, key: ServiceKey) -> CallbackListener | None:
+        """Return the leg that registered ``key``, or ``None`` if it is free."""
+        return self._legs.get(key)
 
     def withdraw(self, connection_id: ConnectionId) -> tuple[ServiceKey, ...]:
         """Free every key ``connection_id`` holds; return the keys freed."""
         freed = self.keys_of(connection_id)
         for key in freed:
             del self._holders[key]
+            del self._legs[key]
         return freed
 
     def holder(self, key: ServiceKey) -> ConnectionId | None:

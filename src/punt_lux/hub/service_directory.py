@@ -16,6 +16,7 @@ from punt_lux.hub.service_registry import ServiceKey, ServiceRegistry
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from punt_lux.hub.callback_ports import CallbackListener
     from punt_lux.hub.hub_clients import HubClientRegistry
     from punt_lux.kernel.connection_id import ConnectionId
 
@@ -56,15 +57,17 @@ class ServiceDirectory:
         identity = session.identity
         if identity is None or not session.is_live(self._clock()):
             return "declined"
-        return self._registry.claim(ServiceKey(service, identity.host), connection_id)
+        return self._registry.claim(
+            ServiceKey(service, identity.host), connection_id, session.listener
+        )
 
     def withdraw(self, connection_id: ConnectionId) -> None:
         """Free every key the connection holds."""
         self._registry.withdraw(connection_id)
 
-    def holder(self, key: ServiceKey) -> ConnectionId | None:
-        """Return the connection serving ``key``, or ``None`` if nothing does."""
-        return self._registry.holder(key)
+    def leg_serving(self, key: ServiceKey) -> CallbackListener | None:
+        """Return the leg that registered ``key``, or ``None`` if nothing does."""
+        return self._registry.leg_of(key)
 
     def hosts_serving(self, service: str) -> tuple[str, ...]:
         """Return the hosts that serve ``service``, in order."""

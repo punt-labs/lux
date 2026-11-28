@@ -181,10 +181,10 @@ class ClientLifecycle:
             self._renew(connection_id, host)
             return self._services.register(connection_id, service)
 
-    def service_holder(self, key: ServiceKey) -> ConnectionId | None:
-        """Return the connection serving ``key``, or ``None`` if nothing does."""
+    def service_leg(self, key: ServiceKey) -> CallbackListener | None:
+        """Return the leg that registered ``key``, or ``None`` if nothing does."""
         with self._lock.write():
-            return self._services.holder(key)
+            return self._services.leg_serving(key)
 
     def hosts_serving(self, service: str) -> tuple[str, ...]:
         """Return the hosts that serve ``service``, in order."""

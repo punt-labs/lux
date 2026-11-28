@@ -135,11 +135,7 @@ class ServiceOperations:
         return self._result_of(call.wait(), key)
 
     def _leg_serving(self, key: ServiceKey) -> RelayLeg | None:
-        holder = self._lifecycle.service_holder(key)
-        if holder is None:
-            return None
-        session = self._clients.session_of(holder)
-        leg = None if session is None else session.listener
+        leg = self._lifecycle.service_leg(key)
         return leg if isinstance(leg, RelayLeg) else None
 
     def _unavailable(self, key: ServiceKey) -> OpError:

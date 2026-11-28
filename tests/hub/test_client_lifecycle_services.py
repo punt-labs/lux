@@ -80,7 +80,7 @@ def test_a_connection_with_a_leg_and_identity_registers_a_service() -> None:
     outcome = factory.lifecycle.register_service(_A, "terminal", UNOBSERVED)
 
     assert outcome == "registered"
-    assert factory.lifecycle.service_holder(_KEY) == _A
+    assert factory.lifecycle.service_leg(_KEY) is not None
 
 
 def test_the_key_host_is_the_identitys_declared_host() -> None:
@@ -89,8 +89,8 @@ def test_the_key_host_is_the_identitys_declared_host() -> None:
 
     factory.lifecycle.register_service(_A, "terminal", UNOBSERVED)
 
-    assert factory.lifecycle.service_holder(ServiceKey("terminal", "pembroke")) == _A
-    assert factory.lifecycle.service_holder(_KEY) is None
+    assert factory.lifecycle.service_leg(ServiceKey("terminal", "pembroke")) is not None
+    assert factory.lifecycle.service_leg(_KEY) is None
 
 
 def test_a_connection_with_no_leg_is_superseded() -> None:
@@ -117,16 +117,18 @@ def test_registering_is_a_contact_that_revives_a_lapsed_lease() -> None:
     assert factory.lifecycle.register_service(_A, "terminal", UNOBSERVED) == (
         "registered"
     )
-    assert factory.lifecycle.service_holder(_KEY) == _A
+    assert factory.lifecycle.service_leg(_KEY) is not None
 
 
 def test_a_different_connection_claiming_a_held_key_is_held() -> None:
-    factory, _ = _served(_A)
+    factory, _ = _wired()
+    leg_a = _Leg()
+    factory.lifecycle.attach(_A, _identity(), leg_a, UNOBSERVED)
     factory.lifecycle.attach(_B, _identity(), _Leg(), UNOBSERVED)
     factory.lifecycle.register_service(_A, "terminal", UNOBSERVED)
 
     assert factory.lifecycle.register_service(_B, "terminal", UNOBSERVED) == "held"
-    assert factory.lifecycle.service_holder(_KEY) == _A
+    assert factory.lifecycle.service_leg(_KEY) is leg_a
 
 
 def test_registering_again_from_the_same_connection_replaces_its_own() -> None:
@@ -144,7 +146,7 @@ def test_a_successor_taking_the_slot_withdraws_the_displaced_legs_services() -> 
 
     factory.lifecycle.attach(_A, _identity(), _Leg(), UNOBSERVED)
 
-    assert factory.lifecycle.service_holder(_KEY) is None
+    assert factory.lifecycle.service_leg(_KEY) is None
 
 
 def test_a_detach_withdraws_the_connections_services() -> None:
@@ -155,7 +157,7 @@ def test_a_detach_withdraws_the_connections_services() -> None:
 
     factory.lifecycle.detach(_A, leg)
 
-    assert factory.lifecycle.service_holder(_KEY) is None
+    assert factory.lifecycle.service_leg(_KEY) is None
 
 
 def test_a_departure_withdraws_the_connections_services() -> None:
@@ -164,7 +166,7 @@ def test_a_departure_withdraws_the_connections_services() -> None:
 
     factory.lifecycle.depart(_A)
 
-    assert factory.lifecycle.service_holder(_KEY) is None
+    assert factory.lifecycle.service_leg(_KEY) is None
 
 
 def test_the_lease_sweep_withdraws_the_services_of_every_lapsed_connection() -> None:
@@ -174,7 +176,7 @@ def test_the_lease_sweep_withdraws_the_services_of_every_lapsed_connection() -> 
 
     factory.lifecycle.depart_lapsed(frozenset())
 
-    assert factory.lifecycle.service_holder(_KEY) is None
+    assert factory.lifecycle.service_leg(_KEY) is None
 
 
 def test_the_hosts_serving_a_service_and_the_listing_read_the_registry() -> None:
@@ -183,3 +185,17 @@ def test_the_hosts_serving_a_service_and_the_listing_read_the_registry() -> None
 
     assert factory.lifecycle.hosts_serving("terminal") == ("okinos",)
     assert factory.lifecycle.services() == ((_KEY, _A),)
+
+
+def test_a_service_resolves_to_the_leg_that_registered_it_not_a_replacement() -> None:
+    factory, _ = _wired()
+    first, replacement = _Leg(), _Leg()
+    factory.lifecycle.attach(_A, _identity(), first, UNOBSERVED)
+    factory.lifecycle.register_service(_A, "terminal", UNOBSERVED)
+    assert factory.lifecycle.service_leg(_KEY) is first
+
+    factory.lifecycle.attach(_A, _identity(), replacement, UNOBSERVED)
+
+    assert factory.lifecycle.service_leg(_KEY) is None
+    factory.lifecycle.register_service(_A, "terminal", UNOBSERVED)
+    assert factory.lifecycle.service_leg(_KEY) is replacement
