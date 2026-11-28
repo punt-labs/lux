@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Self
 
 from punt_lux.service.repo_activation import Checkout
 from punt_lux.tools._repo_roots import RepoRoots
@@ -18,16 +17,25 @@ if TYPE_CHECKING:
 _SELECTION = "lux:repo-selection"
 
 
-@dataclass(frozen=True, slots=True)
 class RepoSelection:
-    context: Context | None
+    _context: Context | None
+    __slots__ = ("_context",)
+
+    def __new__(cls, context: Context | None) -> Self:
+        self = super().__new__(cls)
+        self._context = (
+            context
+            if context is not None and context.request_context is not None
+            else None
+        )
+        return self
 
     async def off_state(
         self, declared: object, identity: ClientIdentity | None
     ) -> ActivationState | None:
         selected = identity.repo if identity is not None else await self._selection()
         target = self._checkout(declared) or self._checkout(selected)
-        roots = await RepoRoots(self._session_context).advertised()
+        roots = await RepoRoots(self._context).advertised()
         root = roots[0] if roots and target not in roots else None
         for checkout in (root, target):
             if checkout is not None and not (state := checkout.state()).enabled:
@@ -35,17 +43,12 @@ class RepoSelection:
                 return state
         return None
 
-    @property
-    def _session_context(self) -> Context | None:
-        ctx = self.context
-        return ctx if ctx is not None and ctx.request_context is not None else None
-
     async def _selection(self) -> object:
-        ctx = self._session_context
+        ctx = self._context
         return await ctx.get_state(_SELECTION) if ctx is not None else None
 
     async def _remember_selection(self, identity: ClientIdentity | None) -> None:
-        ctx = self._session_context
+        ctx = self._context
         if ctx is not None and identity is not None:
             await ctx.set_state(_SELECTION, identity.repo)
 
