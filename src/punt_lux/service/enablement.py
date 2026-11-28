@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from importlib.resources import files
 from pathlib import Path
 from typing import Literal
@@ -39,10 +39,8 @@ class Enablement:
     def imports(self) -> ClaudeImport:
         root = self.checkout.root
         host = "CLAUDE.md" if self.scope == "project" else "CLAUDE.local.md"
-        guide = (self.directory / "CLAUDE.md").relative_to(root)
-        return ClaudeImport(
-            ActivationFile(root / host), f"@{guide.as_posix()}".encode()
-        )
+        guide = (self.directory / "CLAUDE.md").relative_to(root).as_posix()
+        return ClaudeImport(ActivationFile(root / host), f"@{guide}".encode())
 
     def apply(
         self,
@@ -58,11 +56,12 @@ class Enablement:
         if self.checkout.root == Path.home().resolve():
             msg = "The home directory contains user-global Claude settings"
             raise ValueError(msg)
+        notice = None
         if action == "enable":
-            self._enable(refresh=refresh, clear_opt_out=clear_opt_out)
+            notice = self._enable(refresh=refresh, clear_opt_out=clear_opt_out)
         else:
             self._disable(opt_out=opt_out)
-        return self.checkout.state()
+        return replace(self.checkout.state(), notice=notice)
 
     @property
     def _opting_out(self) -> Path:
@@ -78,16 +77,13 @@ class Enablement:
             self.scope == "local" and (self.checkout.root / SHARED / "enabled").exists()
         )
 
-    def _enable(self, *, refresh: bool, clear_opt_out: bool) -> None:
+    def _enable(self, *, refresh: bool, clear_opt_out: bool) -> str | None:
         opting_out = self._opting_out
         if opting_out.exists() and not clear_opt_out:
-            msg = (
-                f"Lux is opted out by {opting_out}; use --scope project --clear-opt-out"
-            )
+            msg = f"Lux opted out by {opting_out}; use --scope project --clear-opt-out"
             raise ValueError(msg)
         if self._inherits_shared:
-            self._enable_inherited(refresh=refresh)
-            return
+            return self._enable_inherited(refresh=refresh)
         guide = VendoredGuide(self.directory)
         self._check_personal_paths(guide)
         content = guide.prepare(refresh=refresh)
@@ -99,22 +95,23 @@ class Enablement:
         if clear_opt_out:
             opting_out.unlink(missing_ok=True)
         self._migrate_display()
+        return None
 
-    def _enable_inherited(self, *, refresh: bool) -> None:
+    def _enable_inherited(self, *, refresh: bool) -> str | None:
         if refresh:
             guide = VendoredGuide(self.directory)
-            self.checkout.require_private(
-                guide.guide.path, guide.inventory.path, self._muted
-            )
-            guide.deposit(guide.prepare(refresh=refresh))
+            if not self.imports.references(guide.guide):
+                return "No active local Lux guide to refresh; local files unchanged."
+            self.checkout.require_private(*guide.paths, self._muted)
+            guide.deposit(guide.prepare(refresh=True))
         self._unmute()
+        return None
 
     def _disable(self, *, opt_out: bool) -> None:
         self._check_personal_paths()
         self._edit_integration(add=False)
         (self.directory / "enabled").unlink(missing_ok=True)
         if self._inherits_shared:
-            self.checkout.require_private(self._muted)
             self._mark(self._muted)
         if opt_out:
             self._mark(self._opting_out)
@@ -138,7 +135,7 @@ class Enablement:
         host = self.imports.host
         hosts = (host.path, host.lock_path, settings.path, settings.lock_path)
         markers = (self.directory / "enabled", self._muted)
-        guide_paths = () if guide is None else (guide.guide.path, guide.inventory.path)
+        guide_paths = () if guide is None else guide.paths
         self.checkout.require_private(*hosts, *markers, *guide_paths)
 
     def _edit_integration(self, *, add: bool) -> None:
@@ -167,9 +164,12 @@ class VendoredGuide:
     def inventory(self) -> ActivationFile:
         return ActivationFile(self.directory / ".vendored-manifest")
 
+    @property
+    def paths(self) -> tuple[Path, Path]:
+        return self.guide.path, self.inventory.path
+
     def _check_refresh(self) -> None:
-        recorded = self.inventory.read()
-        if recorded is None:
+        if (recorded := self.inventory.read()) is None:
             return
         previous: object = json.loads(recorded)
         if previous not in ([], ["CLAUDE.md"]):

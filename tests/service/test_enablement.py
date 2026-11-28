@@ -170,24 +170,42 @@ def test_local_refresh_updates_pinned_guide_when_project_enabled(
 ) -> None:
     local = Enablement(checkout, "local")
     local.apply("enable")
-    local.apply("disable")
     Enablement(checkout, "project").apply("enable")
-    local.apply("disable")
     guide = checkout.root / PERSONAL / "CLAUDE.md"
     shared_guide = checkout.root / SHARED / "CLAUDE.md"
     guide.write_text("Pinned local version\n")
     shared_guide.write_text("Pinned project version\n")
     local.apply("enable")
     assert guide.read_text() == "Pinned local version\n"
-    local.apply("disable")
     state = local.apply("enable", refresh=True)
     assert (
         guide.read_bytes() == (ROOT / "src/punt_lux/service/lux-guide.md").read_bytes()
     )
     assert shared_guide.read_text() == "Pinned project version\n"
     assert state.deciding_file == checkout.root / SHARED / "enabled"
-    assert not (checkout.root / PERSONAL / "enabled").exists()
-    assert not (checkout.root / "CLAUDE.local.md").read_bytes()
+    assert (checkout.root / PERSONAL / "enabled").exists()
+    assert (checkout.root / "CLAUDE.local.md").read_bytes()
+
+
+@pytest.mark.parametrize("previously_enabled", [False, True])
+def test_local_refresh_skips_when_no_local_guide_is_imported(
+    checkout: Checkout, monkeypatch: pytest.MonkeyPatch, previously_enabled: bool
+) -> None:
+    local = Enablement(checkout, "local")
+    if previously_enabled:
+        local.apply("enable")
+        local.apply("disable")
+    Enablement(checkout, "project").apply("enable")
+    directory = checkout.root / PERSONAL
+    before = {p: p.read_bytes() for p in directory.rglob("*") if p.is_file()}
+    monkeypatch.chdir(checkout.root)
+    result = CliRunner().invoke(app, ["enable", "--scope", "local", "--refresh"])
+    assert result.exit_code == 0
+    assert (
+        "No active local Lux guide to refresh; local files unchanged." in result.output
+    )
+    after = {p: p.read_bytes() for p in directory.rglob("*") if p.is_file()}
+    assert before == after
 
 
 def test_opt_out_refusal_leaves_both_scopes_untouched(checkout: Checkout) -> None:

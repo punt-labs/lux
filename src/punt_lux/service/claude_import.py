@@ -19,6 +19,11 @@ class ClaudeImport:
     host: ActivationFile
     line: bytes
 
+    def references(self, guide: ActivationFile) -> bool:
+        if not guide.path.is_file():
+            return False
+        return self._edited(self.host.read() or b"", add=False) is not None
+
     def apply(self, *, add: bool) -> None:
         with self.prepare(add=add) as data:
             if data is not None:
@@ -28,30 +33,25 @@ class ClaudeImport:
     def prepare(self, *, add: bool) -> Generator[bytes | None]:
         if not add and self.host.read() is None:
             yield None
-            return
-        with self.host.locked():
-            original = self.host.read() or b""
-            yield self._edited(original, add=add)
+        else:
+            with self.host.locked():
+                yield self._edited(self.host.read() or b"", add=add)
 
     def _edited(self, original: bytes, *, add: bool) -> bytes | None:
         parts = _EOL.split(original)
         ends = _EOL.findall(original)
-        lines = self._with_endings(parts, ends)
+        lines = list(map(bytes.__add__, parts, [*ends, b""]))
         imports, open_fence = self._scan(parts)
         matches = {i for i in imports if parts[i] == self.line}
-        if add and not matches:
-            if open_fence:
-                msg = f"{self.host.path} ends inside an unclosed code fence"
-                raise ValueError(msg)
-            self._insert(lines, parts, ends, imports)
-            return b"".join(lines)
-        if not add and matches:
+        if add == bool(matches):
+            return None
+        if not add:
             return b"".join(line for i, line in enumerate(lines) if i not in matches)
-        return None
-
-    @staticmethod
-    def _with_endings(parts: list[bytes], ends: list[bytes]) -> list[bytes]:
-        return [part + end for part, end in zip(parts, [*ends, b""], strict=True)]
+        if open_fence:
+            msg = f"{self.host.path} ends inside an unclosed code fence"
+            raise ValueError(msg)
+        self._insert(lines, parts, ends, imports)
+        return b"".join(lines)
 
     @staticmethod
     def _scan(parts: list[bytes]) -> tuple[list[int], bool]:

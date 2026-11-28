@@ -20,13 +20,15 @@ PERSONAL = Path(".punt-labs/local/lux")
 class ActivationState:
     enabled: bool
     deciding_file: Path
+    notice: str | None = None
 
     def describe(self) -> str:
         state = "enabled" if self.enabled else "off"
         suffix = " (marker absent)" if not self.deciding_file.exists() else ""
         if self.deciding_file.name == "disabled":
             suffix = " (a shared guide still loads if imported)"
-        return f"Lux repo integration: {state} — {self.deciding_file}{suffix}"
+        line = f"Lux repo integration: {state} — {self.deciding_file}{suffix}"
+        return "\n".join(filter(None, (line, self.notice)))
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,9 +113,6 @@ class Checkout:
                 raise ValueError(msg)
 
     def _relative(self, path: Path) -> bytes:
-        if not path.is_relative_to(self.root):
-            msg = f"{path} resolves outside {self.root}"
-            raise ValueError(msg)
         return os.fsencode(path.relative_to(self.root))
 
     def _ignored(self, candidates: tuple[bytes, ...]) -> set[bytes]:
