@@ -62,4 +62,5 @@ class DisplayPreference:
 
 
 def current_display() -> LuxConfig:
+    """Read the display preference for the current working directory."""
     return DisplayPreference(Path.cwd()).read()
