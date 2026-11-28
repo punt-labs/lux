@@ -56,12 +56,11 @@ class Enablement:
         if self.checkout.root == Path.home().resolve():
             msg = "The home directory contains user-global Claude settings"
             raise ValueError(msg)
-        notice = None
         if action == "enable":
             notice = self._enable(refresh=refresh, clear_opt_out=clear_opt_out)
-        else:
-            self._disable(opt_out=opt_out)
-        return replace(self.checkout.state(), notice=notice)
+            return replace(self.checkout.state(), notice=notice)
+        self._disable(opt_out=opt_out)
+        return self.checkout.state()
 
     @property
     def _opting_out(self) -> Path:
@@ -73,9 +72,8 @@ class Enablement:
 
     @property
     def _inherits_shared(self) -> bool:
-        return (
-            self.scope == "local" and (self.checkout.root / SHARED / "enabled").exists()
-        )
+        enabled = self.checkout.root / SHARED / "enabled"
+        return self.scope == "local" and enabled.exists()
 
     def _enable(self, *, refresh: bool, clear_opt_out: bool) -> str | None:
         opting_out = self._opting_out
@@ -98,14 +96,16 @@ class Enablement:
         return None
 
     def _enable_inherited(self, *, refresh: bool) -> str | None:
+        notice = None
         if refresh:
             guide = VendoredGuide(self.directory)
-            if not self.imports.references(guide.guide):
-                return "No active local Lux guide to refresh; local files unchanged."
-            self.checkout.require_private(*guide.paths, self._muted)
-            guide.deposit(guide.prepare(refresh=True))
+            if self.imports.references(guide.guide):
+                self.checkout.require_private(*guide.paths, self._muted)
+                guide.deposit(guide.prepare(refresh=True))
+            else:
+                notice = "No active local Lux guide to refresh; guide files unchanged."
         self._unmute()
-        return None
+        return notice
 
     def _disable(self, *, opt_out: bool) -> None:
         self._check_personal_paths()

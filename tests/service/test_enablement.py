@@ -202,10 +202,27 @@ def test_local_refresh_skips_when_no_local_guide_is_imported(
     result = CliRunner().invoke(app, ["enable", "--scope", "local", "--refresh"])
     assert result.exit_code == 0
     assert (
-        "No active local Lux guide to refresh; local files unchanged." in result.output
+        "No active local Lux guide to refresh; guide files unchanged." in result.output
     )
     after = {p: p.read_bytes() for p in directory.rglob("*") if p.is_file()}
     assert before == after
+
+
+def test_local_enable_with_skipped_refresh_clears_disabled_marker(
+    checkout: Checkout, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    Enablement(checkout, "project").apply("enable")
+    Enablement(checkout, "local").apply("disable")
+    marker = checkout.root / PERSONAL / "disabled"
+    assert marker.is_file()
+    monkeypatch.chdir(checkout.root)
+    result = CliRunner().invoke(app, ["enable", "--scope", "local", "--refresh"])
+    assert result.exit_code == 0
+    assert "Lux repo integration: enabled" in result.output
+    assert "No active local Lux guide to refresh" in result.output
+    assert not marker.exists()
+    assert not (marker.parent / "CLAUDE.md").exists()
+    assert not (marker.parent / ".vendored-manifest").exists()
 
 
 def test_opt_out_refusal_leaves_both_scopes_untouched(checkout: Checkout) -> None:
