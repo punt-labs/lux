@@ -86,6 +86,12 @@ class Enablement:
             )
             raise ValueError(msg)
         if self._inherits_shared:
+            if refresh:
+                guide = self._prepare_guide(refresh=refresh)
+                self.checkout.require_private(
+                    guide.guide.path, guide.inventory.path, self._muted
+                )
+                guide.deposit(guide.prepare(refresh=refresh))
             self._unmute(self._muted)
             return
         guide = self._prepare_guide(refresh=refresh)

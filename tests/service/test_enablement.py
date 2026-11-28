@@ -165,6 +165,31 @@ def test_pinned_guide_refresh_and_protected_paths(checkout: Checkout) -> None:
     assert guide.exists()
 
 
+def test_local_refresh_updates_pinned_guide_when_project_enabled(
+    checkout: Checkout,
+) -> None:
+    local = Enablement(checkout, "local")
+    local.apply("enable")
+    local.apply("disable")
+    Enablement(checkout, "project").apply("enable")
+    local.apply("disable")
+    guide = checkout.root / PERSONAL / "CLAUDE.md"
+    shared_guide = checkout.root / SHARED / "CLAUDE.md"
+    guide.write_text("Pinned local version\n")
+    shared_guide.write_text("Pinned project version\n")
+    local.apply("enable")
+    assert guide.read_text() == "Pinned local version\n"
+    local.apply("disable")
+    state = local.apply("enable", refresh=True)
+    assert (
+        guide.read_bytes() == (ROOT / "src/punt_lux/service/lux-guide.md").read_bytes()
+    )
+    assert shared_guide.read_text() == "Pinned project version\n"
+    assert state.deciding_file == checkout.root / SHARED / "enabled"
+    assert not (checkout.root / PERSONAL / "enabled").exists()
+    assert not (checkout.root / "CLAUDE.local.md").read_bytes()
+
+
 def test_opt_out_refusal_leaves_both_scopes_untouched(checkout: Checkout) -> None:
     update = Enablement(checkout, "project")
     marker = checkout.root / SHARED / "opt-out"
