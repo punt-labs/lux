@@ -346,6 +346,12 @@ def test_declared_checkout_can_select_a_later_advertised_root(tmp_path: Path) ->
             )
             assert _tool_text(identified) == "identified:second-root"
             assert not (await client.call_tool_mcp("scene_ls", {})).is_error
+            menu = {
+                "menus": [
+                    {"label": "Checkout", "items": [{"label": "Run", "id": "run"}]}
+                ]
+            }
+            assert not (await client.call_tool_mcp("menu_set", menu)).is_error
             on_marker.unlink()
             dormant = await client.call_tool_mcp("scene_ls", {})
             assert dormant.is_error
@@ -354,6 +360,8 @@ def test_declared_checkout_can_select_a_later_advertised_root(tmp_path: Path) ->
             assert dormant.is_error
             assert str(on_marker) in _tool_text(dormant)
             on_marker.touch()
+            restored = await client.call_tool_mcp("menu_set", menu)
+            assert not restored.is_error, _tool_text(restored)
             assert not (await client.call_tool_mcp("scene_ls", {})).is_error
 
     with _running_luxd() as port:

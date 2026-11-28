@@ -4,18 +4,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from fastmcp.exceptions import ToolError
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 
-from punt_lux.hub.lifecycle import disconnect_connection
 from punt_lux.tools import tools as core
-from punt_lux.tools._repo_selection import RepoSelection
+from punt_lux.tools._repo_session import RepoSession
 
 if TYPE_CHECKING:
     import mcp_types as mt
     from fastmcp.tools.base import ToolResult
-
-    from punt_lux.service.repo_activation import ActivationState
 
 
 class RepoGate(Middleware):
@@ -26,28 +22,14 @@ class RepoGate(Middleware):
         context: MiddlewareContext[mt.CallToolRequestParams],
         call_next: CallNext[mt.CallToolRequestParams, ToolResult],
     ) -> ToolResult:
-        if context.message.name in {"enablement", "status"}:
+        if self._exempt(context.message.name):
             return await call_next(context)
-        state = await self._off_state(context)
-        if state is None:
-            return await call_next(context)
-        self._disconnect()
-        msg = f"{state.describe()}. Run /lux enable or lux enable in that checkout."
-        raise ToolError(msg)
+        return await self._session.call_tool(context, call_next)
 
     @staticmethod
-    async def _off_state(
-        context: MiddlewareContext[mt.CallToolRequestParams],
-    ) -> ActivationState | None:
-        scope = core.scope()
-        identity = core.OPERATIONS.identity_of(scope=scope)
-        declared = (context.message.arguments or {}).get("repo")
-        selection = RepoSelection(context.fastmcp_context)
-        return await selection.off_state(declared, identity)
+    def _exempt(name: str) -> bool:
+        return name in {"enablement", "status"}
 
-    @staticmethod
-    def _disconnect() -> None:
-        scope = core.scope()
-        if core.OPERATIONS.identity_of(scope=scope) is not None:
-            core.OPERATIONS.drop_session(scope.connection_id)
-            disconnect_connection(scope.connection_id)
+    @property
+    def _session(self) -> RepoSession:
+        return RepoSession(core.OPERATIONS, core.scope())

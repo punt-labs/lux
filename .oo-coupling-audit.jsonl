@@ -426,3 +426,5 @@
 {"ts":"2026-11-28T07:57:34Z","commit":"f9ee5a83","source":null,"files_scored":19,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
 {"ts":"2026-11-28T08:02:33Z","commit":"fe495507","source":null,"files_scored":1013,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{},"backfilled":["src/punt_lux/tools/_repo_selection.py"]}
 {"ts":"2026-11-28T08:02:34Z","commit":"fe495507","source":null,"files_scored":19,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
+{"ts":"2026-11-28T08:07:22Z","commit":"dc7b4f9e","source":null,"files_scored":1013,"files_improved":1,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{"src/punt_lux/tools/repo_gate.py":{"efferent_coupling":[4.0,3.0]}},"backfilled":["src/punt_lux/tools/_repo_session.py"]}
+{"ts":"2026-11-28T08:07:22Z","commit":"dc7b4f9e","source":null,"files_scored":19,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
