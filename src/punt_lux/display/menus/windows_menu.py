@@ -23,11 +23,12 @@ from punt_lux.display.menus.hidden_id import MenuHiddenId
 from punt_lux.display.menus.model import Submenu
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Callable, Mapping, Sequence
 
     from punt_lux.display.replica.address_rendering import AddressRendering
     from punt_lux.display.replica.frame import Frame
     from punt_lux.display.window_chrome import WindowChromeCommands
+    from punt_lux.wire.model.identity import HubId
 
 __all__ = ["WindowsMenu"]
 
@@ -37,14 +38,16 @@ class WindowsMenu:
     """Compose the Windows menu from the frames the display is holding."""
 
     _get_frames: Callable[[], Mapping[str, Frame]]
+    _get_docked: Callable[[], Sequence[Frame]]
     _addressing: AddressRendering
     _on_clear_all: Callable[[], None]
     _on_fit_all: Callable[[], None]
-    _on_raise_frame: Callable[[str], None]
+    _on_raise_frame: Callable[[str, HubId], None]
     _chrome: WindowChromeCommands
     __slots__ = (
         "_addressing",
         "_chrome",
+        "_get_docked",
         "_get_frames",
         "_on_clear_all",
         "_on_fit_all",
@@ -55,14 +58,16 @@ class WindowsMenu:
         cls,
         *,
         get_frames: Callable[[], Mapping[str, Frame]],
+        get_docked: Callable[[], Sequence[Frame]],
         addressing: AddressRendering,
         on_clear_all: Callable[[], None],
         on_fit_all: Callable[[], None],
-        on_raise_frame: Callable[[str], None],
+        on_raise_frame: Callable[[str, HubId], None],
         chrome: WindowChromeCommands,
     ) -> Self:
         self = super().__new__(cls)
         self._get_frames = get_frames
+        self._get_docked = get_docked
         self._addressing = addressing
         self._on_clear_all = on_clear_all
         self._on_fit_all = on_fit_all
@@ -77,7 +82,7 @@ class WindowsMenu:
             "Windows",
             [
                 *self._layout_items(frames),
-                *self._docked_entries(frames),
+                *self._docked_entries(),
                 MenuSeparator(),
                 MenuItem("Clear All", self._on_clear_all),
                 MenuItem("Reset Size", self._chrome.reset_size),
@@ -100,9 +105,13 @@ class WindowsMenu:
             MenuItem("Fit All", self._on_fit_all, enabled=bool(frames)),
         ]
 
-    def _docked_entries(self, frames: list[Frame]) -> list[MenuSeparator | MenuItem]:
-        """Return one entry per docked frame under a rule, or nothing if none are."""
-        docked = [frame for frame in frames if frame.is_docked]
+    def _docked_entries(self) -> list[MenuSeparator | MenuItem]:
+        """Return one entry per docked frame under a rule, or nothing if none are.
+
+        Read from the docked list, not the flattened frame map: two Hubs can hold
+        a frame under one id, and each of those frames has its own pill.
+        """
+        docked = list(self._get_docked())
         if not docked:
             return []
         return [MenuSeparator(), *(self._reopen_item(frame) for frame in docked)]
@@ -113,7 +122,7 @@ class WindowsMenu:
         label = MenuHiddenId.compose(
             self._addressing.frame_title(frame), f"{frame.hub.wire_token}:{frame_id}"
         )
-        return MenuItem(label, lambda: self._on_raise_frame(frame_id))
+        return MenuItem(label, lambda: self._on_raise_frame(frame_id, frame.hub))
 
     def _collapse_all(self) -> None:
         """Send every frame that is on screen to the dock."""

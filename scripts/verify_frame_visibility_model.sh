@@ -89,6 +89,15 @@ check_model 3 "$MODEL" content-never-steals-tab 'not found' "$TABSTEAL"
 check_model 3 "$MODEL" content-never-undocks 'not found' "$UNDOCKED"
 check_model 3 "$MODEL" end-needs-handler 'not found' "$NOHANDLER"
 check_model 3 "$MODEL" lifecycle-deadlock 'not found'
+
+# ALL OPERATIONS COVERED on the intact model rules out a vacuous pass: every
+# invariant above held while every operation was exercised.
+for label in content-never-focuses content-never-steals-tab content-never-undocks \
+  end-needs-handler lifecycle-deadlock; do
+  grep -Fq 'ALL OPERATIONS COVERED' "$LOG_DIR/$label.log" ||
+    fail "$label did not cover every operation" "$LOG_DIR/$label.log"
+done
+echo "PASS: every operation covered on the intact model"
 check_model 3 "$LOG_DIR/push-arrival.tex" push-arrival-focus-fidelity found "$AUTOFOCUS"
 check_model 3 "$LOG_DIR/push-arrival.tex" push-arrival-tab-fidelity found "$TABSTEAL"
 check_model 3 "$LOG_DIR/push-arrival.tex" push-arrival-undock-fidelity found "$UNDOCKED"

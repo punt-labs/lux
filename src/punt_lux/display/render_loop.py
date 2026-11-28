@@ -125,10 +125,11 @@ class RenderLoop:
             own=OwnMenus(
                 settings=self._settings,
                 get_frames=lambda: self._scenes.frames,
+                get_docked=self._scenes.docked_frames,
                 addressing=self._addressing,
                 on_clear_all=self._clear_all,
                 on_fit_all=self._request_fit_all,
-                on_raise_frame=self._raise_frame_unscoped,
+                on_raise_frame=self._raise_frame,
                 chrome=WindowChrome(),
             ),
         )
@@ -297,9 +298,6 @@ class RenderLoop:
     def _raise_frame(self, frame_id: str, hub: HubId) -> None:
         """Raise a replicated menu's frame in its owning Hub's scope."""
         self._scenes.raise_frame(frame_id, hub)
-
-    def _raise_frame_unscoped(self, frame_id: str) -> None:
-        self._scenes.raise_frame(frame_id)
 
     def _request_fit_all(self) -> None:
         """Request a fit-all layout from the menu."""

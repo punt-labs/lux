@@ -288,6 +288,7 @@ class TestWindowsMenuReopenIdentity:
     def _windows(self, frames: dict[str, Frame]) -> WindowsMenu:
         return WindowsMenu(
             get_frames=lambda: frames,
+            get_docked=lambda: [f for f in frames.values() if f.is_docked],
             addressing=AddressRendering(),
             on_clear_all=ignore,
             on_fit_all=ignore,
@@ -315,6 +316,7 @@ class TestWindowsMenuReopenIdentity:
         frame.heading.relabel("lux (2)")
         windows = WindowsMenu(
             get_frames=lambda: {"f1": frame},
+            get_docked=lambda: [frame],
             addressing=AddressRendering(),
             on_clear_all=ignore,
             on_fit_all=ignore,
@@ -334,3 +336,32 @@ class TestWindowsMenuReopenIdentity:
         self._windows({"f1": frame}).section().render(imgui)
 
         assert imgui.line("Vox").label == "Vox"
+
+
+class TestWindowsMenuListsEveryHubsDockedFrame:
+    """Two Hubs can hold a docked frame under one id; each gets its own entry."""
+
+    def test_each_hubs_frame_gets_an_entry_that_raises_its_own_hub(self) -> None:
+        frame_a = make_frame(
+            "board", visibility=FrameVisibility.DOCKED, title="Alpha", hub=_HUB_A
+        )
+        frame_b = make_frame(
+            "board", visibility=FrameVisibility.DOCKED, title="Beta", hub=_HUB_B
+        )
+        raised: list[tuple[str, HubId]] = []
+        windows = WindowsMenu(
+            get_frames=lambda: {"board": frame_a},  # the flattened view keeps one
+            get_docked=lambda: [frame_a, frame_b],
+            addressing=AddressRendering(),
+            on_clear_all=ignore,
+            on_fit_all=ignore,
+            on_raise_frame=lambda frame_id, hub: raised.append((frame_id, hub)),
+            chrome=FakeChrome(),
+        )
+
+        windows.section().render(FakeImGui(("Beta",), strict_ids=True))
+
+        assert raised == [("board", _HUB_B)]
+        listed = FakeImGui(strict_ids=True)
+        windows.section().render(listed)
+        assert {"Alpha", "Beta"} <= set(listed.labels_under("Windows"))

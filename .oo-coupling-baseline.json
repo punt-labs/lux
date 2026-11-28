@@ -3916,8 +3916,8 @@
     "efferent_coupling": 28.0,
     "public_names": 2.0,
     "circular_imports": 0.0,
-    "max_lcom": 0.728,
-    "avg_lcom": 0.728
+    "max_lcom": 0.733,
+    "avg_lcom": 0.733
   },
   "src/punt_lux/display/renderers/__init__.py": {
     "efferent_coupling": 14.0,

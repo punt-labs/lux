@@ -402,7 +402,11 @@ class TestTheDockedFrameList:
             "a": make_frame("a", visibility=FrameVisibility.DOCKED, title="Music"),
             "b": make_frame("b", visibility=FrameVisibility.DOCKED, title="Beads"),
         }
-        manager = _manager(get_frames=lambda: frames, on_raise_frame=raised.append)
+
+        def record_raise(frame_id: str, _hub: HubId) -> None:
+            raised.append(frame_id)
+
+        manager = _manager(get_frames=lambda: frames, on_raise_frame=record_raise)
 
         manager.render_bar(FakeImGui(("Music",)))
 

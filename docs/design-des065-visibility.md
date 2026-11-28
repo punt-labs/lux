@@ -11,11 +11,15 @@ partition audit [`frame_visibility_lifecycle_coverage.md`](frame_visibility_life
 
 Visibility has two values, `ON_SCREEN` and `DOCKED`. Every frame has –, which
 docks it with all state kept; a dock pill, the Windows menu or the frame's menu
-entry restores it unchanged. × appears only on a frame whose owner registered
-an end handler. After a confirm the Display routes × to that handler through
-remote dispatch (D21), and the owner ends the content; the frame goes with its
-last scene. The rule of section 1 stands: a content event never writes
-visibility, and a visibility event never writes content.
+entry restores it unchanged. The Display ships this part now, and draws no ×.
+
+The end gesture is modeled here and ships with `frame end`: × would appear only
+on a frame whose owner registered an end handler, and after a confirm the
+Display would route it to that handler through remote dispatch (D21), and the
+owner ends the content; the frame goes with its last scene. `RegisterEndHandler`,
+`End` and `OwnerEnd` below are that model, not shipped behavior. The rule of
+section 1 stands: a content event never writes visibility, and a visibility
+event never writes content.
 
 The model has thirteen operations. Content events: `PushNewFrame`,
 `PushNewScene`, `PushRepeat`, `DisposeScene`, `DisposeFrame`,

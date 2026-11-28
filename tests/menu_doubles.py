@@ -843,6 +843,10 @@ def make_menu_replica(**overrides: Any) -> MenuReplica:
         "chrome": FakeChrome(),
     }
     defaults.update(overrides)
+    get_frames = defaults["get_frames"]
+    defaults.setdefault(
+        "get_docked", lambda: [f for f in get_frames().values() if f.is_docked]
+    )
     emit_event = defaults.pop("emit_event")
     return MenuReplica(
         emit_event=emit_event,
