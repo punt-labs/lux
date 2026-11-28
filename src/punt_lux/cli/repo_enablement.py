@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, TypedDict
 
 import typer
 
@@ -19,6 +19,12 @@ class EnablementScope(StrEnum):
     LOCAL = "local"
 
 
+class _EnablementReport(TypedDict):
+    enabled: bool
+    deciding_file: str
+    refresh_notice: str | None
+
+
 class RepoCommands:
     @classmethod
     def register(cls, app: typer.Typer) -> None:
@@ -28,9 +34,7 @@ class RepoCommands:
     @staticmethod
     def enable(
         *,
-        scope: Annotated[
-            EnablementScope, typer.Option("--scope")
-        ] = EnablementScope.LOCAL,
+        scope: EnablementScope = EnablementScope.LOCAL,
         refresh: Annotated[
             bool, typer.Option("--refresh", help="Replace the deposited user guide.")
         ] = False,
@@ -48,9 +52,7 @@ class RepoCommands:
     @staticmethod
     def disable(
         *,
-        scope: Annotated[
-            EnablementScope, typer.Option("--scope")
-        ] = EnablementScope.LOCAL,
+        scope: EnablementScope = EnablementScope.LOCAL,
         opt_out: Annotated[bool, typer.Option("--opt-out")] = False,
         json_out: JsonFlag = False,
         verbose: VerboseFlag = False,
@@ -83,7 +85,7 @@ class RepoCommands:
             typer.echo(f"error: {error}", err=True)
             raise typer.Exit(1) from error
         if not flags.quiet:
-            report = {
+            report: _EnablementReport = {
                 "enabled": result.enabled,
                 "deciding_file": str(result.deciding_file),
                 "refresh_notice": result.notice,
