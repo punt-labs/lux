@@ -9,11 +9,13 @@ the disconnect cascade (the live session count returns to zero on close).
 from __future__ import annotations
 
 import json
+import subprocess
 import threading
 import time
 import urllib.request
 from collections.abc import Generator
 from contextlib import AsyncExitStack, contextmanager
+from pathlib import Path
 
 import anyio
 import httpx
@@ -32,6 +34,7 @@ from mcp_types.version import (
 
 from punt_lux.hub.luxd import build_app
 from punt_lux.hub.mcp_transport import SESSION_IDLE_TIMEOUT_SECONDS, McpHttpTransport
+from punt_lux.service.repo_activation import SHARED
 
 pytestmark = pytest.mark.integration
 
@@ -251,6 +254,32 @@ def test_idle_session_is_reaped_and_runs_the_disconnect_cascade(
 def _tool_text(result: CallToolResult) -> str:
     block = result.content[0] if result.content else None
     return block.text if isinstance(block, TextContent) else ""
+
+
+def test_repo_less_scene_calls_follow_advertised_checkout(tmp_path: Path) -> None:
+    """HTTP roots discovery binds repo-less scene calls to the advertised checkout."""
+    subprocess.run(
+        ["/usr/bin/env", "git", "init", "--quiet", str(tmp_path)],
+        check=True,
+        capture_output=True,
+    )
+    marker = tmp_path / SHARED / "enabled"
+
+    async def _drive(port: int) -> None:
+        url = f"http://127.0.0.1:{port}/mcp"
+        async with Client(url, roots=[tmp_path.as_uri()]) as client:
+            dormant = await client.call_tool_mcp("scene_ls", {})
+            assert dormant.is_error
+            assert "Run /lux enable" in _tool_text(dormant)
+            assert str(marker) in _tool_text(dormant)
+            marker.parent.mkdir(parents=True)
+            marker.touch()
+            assert not (await client.call_tool_mcp("scene_ls", {})).is_error
+            marker.unlink()
+            assert (await client.call_tool_mcp("scene_ls", {})).is_error
+
+    with _running_luxd() as port:
+        anyio.run(_drive, port)
 
 
 def test_identified_session_can_inspect_and_clear_its_scene() -> None:
