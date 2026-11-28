@@ -282,6 +282,44 @@ def test_repo_less_scene_calls_follow_advertised_checkout(tmp_path: Path) -> Non
         anyio.run(_drive, port)
 
 
+def test_advertised_checkout_stays_dormant_with_another_repo_declared(
+    tmp_path: Path,
+) -> None:
+    invoking = tmp_path / "invoking"
+    other = tmp_path / "other"
+    for repo in (invoking, other):
+        subprocess.run(
+            ["/usr/bin/env", "git", "init", "--quiet", str(repo)],
+            check=True,
+            capture_output=True,
+        )
+    other_marker = other / SHARED / "enabled"
+    other_marker.parent.mkdir(parents=True)
+    other_marker.touch()
+    invoking_marker = invoking / SHARED / "enabled"
+    identify = {"kind": "mcp-session", "name": "cross-checkout", "repo": str(other)}
+
+    async def _drive(port: int) -> None:
+        url = f"http://127.0.0.1:{port}/mcp"
+        async with Client(url, roots=[invoking.as_uri()]) as client:
+            dormant = await client.call_tool_mcp("session_identify", identify)
+            assert dormant.is_error
+            assert str(invoking_marker) in _tool_text(dormant)
+            invoking_marker.parent.mkdir(parents=True)
+            invoking_marker.touch()
+            assert not (
+                await client.call_tool_mcp("session_identify", identify)
+            ).is_error
+            assert not (await client.call_tool_mcp("scene_ls", {})).is_error
+            invoking_marker.unlink()
+            dormant = await client.call_tool_mcp("scene_ls", {})
+            assert dormant.is_error
+            assert str(invoking_marker) in _tool_text(dormant)
+
+    with _running_luxd() as port:
+        anyio.run(_drive, port)
+
+
 def test_identified_session_can_inspect_and_clear_its_scene() -> None:
     """A session without a query key uses one Hub scope for all its calls."""
 

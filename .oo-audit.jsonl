@@ -1873,3 +1873,5 @@
 {"ts":"2026-11-28T07:03:53Z","commit":"71b9f34c","source":null,"files_scored":19,"files_improved":0,"files_regressed":0,"verdict":"pass","deltas":{},"removed":[]}
 {"ts":"2026-11-28T07:50:10Z","commit":"ecdf8515","source":null,"files_scored":1011,"files_improved":1,"files_regressed":0,"verdict":"pass","deltas":{"src/punt_lux/service/enablement.py":{"avg_params":[0.65,0.64],"avg_complexity":[2.65,2.5],"module_size":[167.0,127.0]}},"removed":[],"backfilled":["src/punt_lux/service/enablement_files.py"]}
 {"ts":"2026-11-28T07:50:10Z","commit":"ecdf8515","source":null,"files_scored":19,"files_improved":0,"files_regressed":0,"verdict":"pass","deltas":{},"removed":[]}
+{"ts":"2026-11-28T07:51:26Z","commit":"2c840b9f","source":null,"files_scored":1011,"files_improved":1,"files_regressed":0,"verdict":"pass","deltas":{"src/punt_lux/tools/repo_gate.py":{"avg_params":[1.17,1.14],"max_complexity":[8.0,7.0],"avg_complexity":[4.33,4.29],"module_size":[87.0,86.0]}},"removed":[]}
+{"ts":"2026-11-28T07:51:26Z","commit":"2c840b9f","source":null,"files_scored":19,"files_improved":0,"files_regressed":0,"verdict":"pass","deltas":{},"removed":[]}

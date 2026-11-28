@@ -13,7 +13,7 @@ from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 from mcp.shared.exceptions import MCPError
 
 from punt_lux.hub.lifecycle import disconnect_connection
-from punt_lux.service.repo_activation import Checkout
+from punt_lux.service.repo_activation import ActivationState, Checkout
 from punt_lux.tools import tools as core
 
 if TYPE_CHECKING:
@@ -21,7 +21,6 @@ if TYPE_CHECKING:
     from fastmcp.tools.base import ToolResult
 
 _ROOT = "lux:repo-root"
-_RESOLVED_ROOTS = "lux:resolved-roots"
 
 
 class RepoGate(Middleware):
@@ -34,11 +33,7 @@ class RepoGate(Middleware):
     ) -> ToolResult:
         if context.message.name in {"enablement", "status"}:
             return await call_next(context)
-        checkout = await self._checkout(context)
-        if checkout is None:
-            return await call_next(context)
-        state = checkout.state()
-        if state.enabled:
+        if (state := await self._off_state(context)) is None:
             return await call_next(context)
         scope = core.scope()
         if core.OPERATIONS.identity_of(scope=scope) is not None:
@@ -47,27 +42,26 @@ class RepoGate(Middleware):
         msg = f"{state.describe()}. Run /lux enable or lux enable in that checkout."
         raise ToolError(msg)
 
-    async def _checkout(
+    async def _off_state(
         self, context: MiddlewareContext[mt.CallToolRequestParams]
-    ) -> Checkout | None:
-        ctx = context.fastmcp_context
-        checkout = self._declared_checkout(context.message.arguments or {})
-        if checkout is not None:
-            return checkout
-        identity = core.OPERATIONS.identity_of(scope=core.scope())
-        if identity is not None and identity.repo is not None:
-            return Checkout.find(Path(identity.repo))
-        if ctx is None or ctx.request_context is None:
-            return None
-        remembered: object = await ctx.get_state(_ROOT)
-        if isinstance(remembered, str):
-            return Checkout(Path(remembered))
-        return await self._client_root(ctx)
+    ) -> ActivationState | None:
+        root = await self._client_root(context.fastmcp_context)
+        for checkout in (root, self._declared_checkout(context)):
+            if checkout is not None and not (state := checkout.state()).enabled:
+                return state
+        return None
 
     @staticmethod
-    def _declared_checkout(arguments: dict[str, object]) -> Checkout | None:
-        declared = arguments.get("repo")
-        return Checkout.find(Path(declared)) if isinstance(declared, str) else None
+    def _declared_checkout(
+        context: MiddlewareContext[mt.CallToolRequestParams],
+    ) -> Checkout | None:
+        declared = (context.message.arguments or {}).get("repo")
+        if isinstance(declared, str) and (checkout := Checkout.find(Path(declared))):
+            return checkout
+        identity = core.OPERATIONS.identity_of(scope=core.scope())
+        return (
+            Checkout.find(Path(identity.repo)) if identity and identity.repo else None
+        )
 
     @staticmethod
     def _local_root(uri: str) -> Checkout | None:
@@ -77,27 +71,33 @@ class RepoGate(Middleware):
         return None
 
     @staticmethod
-    async def _should_probe(ctx: Context) -> bool:
+    async def _client_root(ctx: Context | None) -> Checkout | None:
+        if ctx is None or ctx.request_context is None:
+            return None
+        remembered: object = await ctx.get_state(_ROOT)
+        if isinstance(remembered, str):
+            return Checkout(Path(remembered))
         caps = ctx.session.client_capabilities
-        return bool(
-            caps and caps.roots is not None and not await ctx.get_state(_RESOLVED_ROOTS)
-        )
+        if remembered or caps is None or caps.roots is None:
+            return None
+        return await RepoGate._probe(ctx)
 
     @staticmethod
-    async def _client_root(ctx: Context) -> Checkout | None:
-        if not await RepoGate._should_probe(ctx):
-            return None
-        try:
-            with anyio.move_on_after(1):
+    async def _probe(ctx: Context) -> Checkout | None:
+        checkout = await RepoGate._discover(ctx)
+        await ctx.set_state(_ROOT, str(checkout.root) if checkout else True)
+        return checkout
+
+    @staticmethod
+    async def _discover(ctx: Context) -> Checkout | None:
+        with anyio.move_on_after(1):
+            try:
                 roots = await ctx.session.send_request(
                     mt.ListRootsRequest(), mt.ListRootsResult
                 )
-                for root in roots.roots:
-                    checkout = RepoGate._local_root(str(root.uri))
-                    if checkout is not None:
-                        await ctx.set_state(_ROOT, str(checkout.root))
-                        return checkout
-        except MCPError:
-            pass
-        await ctx.set_state(_RESOLVED_ROOTS, value=True)
+            except MCPError:
+                return None
+            for root in roots.roots:
+                if checkout := RepoGate._local_root(str(root.uri)):
+                    return checkout
         return None
