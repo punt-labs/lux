@@ -86,25 +86,28 @@ class Enablement:
             )
             raise ValueError(msg)
         if self._inherits_shared:
-            if refresh:
-                guide = self._prepare_guide(refresh=refresh)
-                self.checkout.require_private(
-                    guide.guide.path, guide.inventory.path, self._muted
-                )
-                guide.deposit(guide.prepare(refresh=refresh))
-            self._unmute(self._muted)
+            self._enable_inherited(refresh=refresh)
             return
-        guide = self._prepare_guide(refresh=refresh)
+        guide = VendoredGuide(self.directory)
         self._check_personal_paths(guide)
         content = guide.prepare(refresh=refresh)
         self._edit_integration(add=True)
         guide.deposit(content)
         self._mark(self.directory / "enabled")
         if self.scope == "local":
-            self._unmute(self._muted)
+            self._unmute()
         if clear_opt_out:
             opting_out.unlink(missing_ok=True)
         self._migrate_display()
+
+    def _enable_inherited(self, *, refresh: bool) -> None:
+        if refresh:
+            guide = VendoredGuide(self.directory)
+            self.checkout.require_private(
+                guide.guide.path, guide.inventory.path, self._muted
+            )
+            guide.deposit(guide.prepare(refresh=refresh))
+        self._unmute()
 
     def _disable(self, *, opt_out: bool) -> None:
         self._check_personal_paths()
@@ -122,34 +125,21 @@ class Enablement:
         except (OSError, ValueError) as exc:
             logger.warning("Could not migrate the legacy display preference: %s", exc)
 
-    def _unmute(self, muted: Path) -> None:
-        if muted.exists() or muted.is_symlink():
+    def _unmute(self) -> None:
+        muted = self._muted
+        if muted.exists(follow_symlinks=False):
             self.checkout.require_private(muted)
             muted.unlink()
-
-    def _prepare_guide(self, *, refresh: bool) -> VendoredGuide:
-        guide = VendoredGuide(self.directory)
-        if refresh:
-            guide.check_refresh()
-        return guide
 
     def _check_personal_paths(self, guide: VendoredGuide | None = None) -> None:
         if self.scope == "project":
             return
-        root = self.checkout.root
-        settings = ActivationFile(root / ".claude/settings.local.json")
+        settings = ActivationFile(self.checkout.root / ".claude/settings.local.json")
         host = self.imports.host
-        paths: tuple[Path, ...] = (
-            host.path,
-            host.lock_path,
-            settings.path,
-            settings.lock_path,
-            self.directory / "enabled",
-            self.directory / "disabled",
-        )
-        if guide is not None:
-            paths = (*paths, guide.guide.path, guide.inventory.path)
-        self.checkout.require_private(*paths)
+        hosts = (host.path, host.lock_path, settings.path, settings.lock_path)
+        markers = (self.directory / "enabled", self._muted)
+        guide_paths = () if guide is None else (guide.guide.path, guide.inventory.path)
+        self.checkout.require_private(*hosts, *markers, *guide_paths)
 
     def _edit_integration(self, *, add: bool) -> None:
         imports = self.imports
@@ -177,7 +167,7 @@ class VendoredGuide:
     def inventory(self) -> ActivationFile:
         return ActivationFile(self.directory / ".vendored-manifest")
 
-    def check_refresh(self) -> None:
+    def _check_refresh(self) -> None:
         recorded = self.inventory.read()
         if recorded is None:
             return
@@ -190,6 +180,8 @@ class VendoredGuide:
             raise ValueError(msg)
 
     def prepare(self, *, refresh: bool) -> bytes | None:
+        if refresh:
+            self._check_refresh()
         original = self.guide.read()
         if original is not None and not refresh:
             return None
