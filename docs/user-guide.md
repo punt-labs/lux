@@ -74,7 +74,8 @@ opt-out, and `lux enable --scope project --clear-opt-out` to undo it. Use
 When integration is off, Lux hooks do not run applets and repo-bound MCP tools
 are dormant apart from status and enablement. The personal display preference
 is independent: `/lux y` and `/lux n` write
-`.punt-labs/local/lux/display.local.md` in the main checkout. Lux reads the
+`.punt-labs/local/lux/display.local.md` in the main checkout (or in the
+invoking worktree if the main repository is bare). Lux reads the
 old `.punt-labs/lux.md` preference if no local preference exists; enabling
 copies the old value without changing the legacy file.
 

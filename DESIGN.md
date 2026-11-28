@@ -9039,6 +9039,7 @@ to work independently.
 
 The old display flag is not a legacy activation marker: it was a preference,
 and migrating it must not opt a repository in. Display mode is local to the
-main checkout; a modern preference overrides the old file without rewriting
-it. The PTY supervisor is machine-scoped and is managed with `lux terminal
+main checkout, or the invoking worktree if the main repository is bare. A
+modern preference overrides the old file without rewriting it. The PTY
+supervisor is machine-scoped and is managed with `lux terminal
 install` and `lux terminal uninstall`, not repo enablement.

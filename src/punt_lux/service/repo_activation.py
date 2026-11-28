@@ -56,8 +56,8 @@ class Checkout:
             value = os.fsdecode(result.stdout)
             if not main:
                 return cls(Path(value.removesuffix("\n")).resolve())
-            record = value.partition("\0")[0]
-            if record.startswith("worktree "):
+            record, _, attributes = value.partition("\0")
+            if not attributes.startswith("bare\0"):
                 return cls(Path(record.removeprefix("worktree ")).resolve())
         msg = f"No git checkout at {start}"
         raise ValueError(msg)

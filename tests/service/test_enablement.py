@@ -260,6 +260,21 @@ def test_display_migrates_to_local_and_worktree_writes_main_checkout(
     assert git(linked, "status", "--porcelain") == ""
 
 
+def test_display_preference_uses_invoking_worktree_when_main_is_bare(
+    checkout: Checkout, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    bare = tmp_path_factory.mktemp("lux-bare")
+    linked = tmp_path_factory.mktemp("lux-from-bare")
+    git(checkout.root, "clone", "--bare", ".", str(bare))
+    git(bare, "worktree", "add", "--detach", str(linked), "HEAD")
+    store = DisplayModeStore(str(linked))
+    assert store.write("y") is None
+    assert store.read() == DisplayModeState(mode="on")
+    assert (linked / DEFAULT_CONFIG_PATH).is_file()
+    assert not (bare / DEFAULT_CONFIG_PATH).exists()
+    assert git(linked, "status", "--porcelain") == ""
+
+
 @pytest.mark.parametrize("action", ["enable", "disable"])
 def test_invalid_settings_leave_integration_untouched(
     checkout: Checkout, action: Action
