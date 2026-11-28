@@ -34,7 +34,7 @@ class TestLayerContract:
             ("punt_lux.wire", "wire"),
             ("punt_lux.wire.model.lease_term", "wire"),
             ("punt_lux.service.display_paths", "service"),
-            ("punt_lux.cli.display_enablement", "cli"),
+            ("punt_lux.cli.repo_enablement", "cli"),
             ("punt_lux.service.display_mode_store", "service"),
             ("punt_lux.service.doctor_checks", "service"),
             ("punt_lux.kernel.client_host", "kernel"),

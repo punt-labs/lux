@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Changed
+
+- `lux enable` and `lux disable` now control checkout integration through
+  personal or project markers, pinned guidance, and scoped Claude permissions.
+  Use `--scope project` for a shared change or committed opt-out.
+- `/lux y` and `/lux n` are personal display preferences and no longer change
+  permissions. Use `lux terminal install` and `lux terminal uninstall` for
+  the machine's PTY service; the old terminal verbs are deprecated aliases.
+
 ### Added
 
 - Linux runtime packaging for Ethos handoff snapshots of `make check`.

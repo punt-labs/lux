@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import final
 
-from punt_lux.service.config import ConfigManager
+from punt_lux.service.display_preference import current_display
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +19,7 @@ class SessionStartDecisions:
     @staticmethod
     def _enabled() -> bool:
         try:
-            return ConfigManager().read().display == "y"
+            return current_display().display == "y"
         except Exception as error:
             logger.error(
                 "SessionStart display decision failed: %s", type(error).__name__

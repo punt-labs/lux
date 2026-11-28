@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 @final
 class DisplayModeGetCommand:
-    """Read a project's per-repo display mode from ``<repo>/.punt-labs/lux.md``."""
+    """Read a project's personal display preference."""
 
     __slots__ = ()
 

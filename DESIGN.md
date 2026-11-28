@@ -9023,3 +9023,23 @@ Unit 3's contract carries this requirement and its design review includes
 - A provider that does not answer ties up one waiter thread for at most 15 s.
 - Until cross-Hub forwarding exists, `--host` reaches only the addressed Hub's
   own host.
+
+## DES-108: Checkout integration is independent of the display and PTY service
+
+**Decision.** Use the Punt Labs enable/disable standard: a shared marker and
+local overrides determine whether Claude Code integration runs in a checkout.
+The CLI and MCP edit the same scoped state. A repo opt-out has precedence over
+both enabled markers. Hooks check before doing repository work and the Hub
+checks repo-bound MCP calls against the current markers, not the display
+preference. Production SessionStart installs the machine-local `/lux` alias
+before the repo gate so it can enable an off checkout; it writes only to
+`~/.claude/commands/`, not to the checkout.
+Standalone MCP clients without a checkout and explicit CLI rendering continue
+to work independently.
+
+The old display flag is not a legacy activation marker: it was a preference,
+and migrating it must not opt a repository in. Display mode is local to the
+main checkout, or the invoking worktree if the main repository is bare. A
+modern preference overrides the old file without rewriting it. The PTY
+supervisor is machine-scoped and is managed with `lux terminal
+install` and `lux terminal uninstall`, not repo enablement.

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import importlib
+import shutil
+import subprocess
 from pathlib import Path
 from unittest.mock import patch
 
@@ -161,6 +163,9 @@ class TestDisplayModeFused:
         # Setting the mode moved out of the Hub entirely (DES-088): the CLI
         # writes DisplayModeStore directly and never touches the client.
         client = _DisplayClient()
+        git = shutil.which("git") or "/usr/bin/git"
+        subprocess.run([git, "init", "-q", str(tmp_path)], check=True)
+        (tmp_path / ".gitignore").write_text(".punt-labs/local/\n")
         with patch(
             "punt_lux.client.facade.LuxClient.for_identity", return_value=client
         ):
@@ -170,8 +175,9 @@ class TestDisplayModeFused:
         assert result.exit_code == 0
         assert result.output.strip() == "display:off"
         assert client.calls == []
-        content = (tmp_path / ".punt-labs" / "lux.md").read_text()
+        content = (tmp_path / ".punt-labs/local/lux/display.local.md").read_text()
         assert 'display: "n"' in content
+        assert not (tmp_path / ".claude").exists()
 
     def test_an_invalid_mode_value_is_rejected_before_any_network_call(
         self, tmp_path: Path

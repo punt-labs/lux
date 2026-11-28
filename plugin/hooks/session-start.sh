@@ -22,25 +22,32 @@ if grep -q '"lux-dev"' "$PLUGIN_JSON"; then
   DEV_MODE=true
 fi
 
+deploy_command() {
+  local src="$1" dest="$COMMANDS_DIR/${1##*/}"
+  mkdir -p "$COMMANDS_DIR"
+  if [[ ! -f "$dest" ]] || ! cmp -s "$src" "$dest"; then
+    cp "$src" "$dest"
+  fi
+}
+
+if [[ "$DEV_MODE" == "false" ]]; then
+  deploy_command "$PLUGIN_ROOT/commands/lux.md"
+fi
+
+# shellcheck source=plugin/hooks/repo-enabled.sh
+source "$(dirname "$0")/repo-enabled.sh"
+lux_repo_enabled || exit 0
+
 # ── Deploy top-level commands (prod mode only) ───────────────────────
-# In dev mode, skip — prod plugin handles top-level commands.
-# Skip *-dev.md files — dev commands use plugin namespace (lux-dev:foo-dev)
 if [[ "$DEV_MODE" == "false" ]]; then
   for cmd_file in "$PLUGIN_ROOT/commands/"*.md; do
     [[ -f "$cmd_file" ]] || continue
-    name="$(basename "$cmd_file")"
-    [[ "$name" == *-dev.md ]] && continue
-    dest="$COMMANDS_DIR/$name"
-    mkdir -p "$COMMANDS_DIR"
-    if [[ ! -f "$dest" ]] || ! diff -q "$cmd_file" "$dest" >/dev/null 2>&1; then
-      cp "$cmd_file" "$dest"
-    fi
+    case "${cmd_file##*/}" in
+      lux.md|*-dev.md) continue ;;
+    esac
+    deploy_command "$cmd_file"
   done
 fi
-
-# Permission rules are not set up here: SessionStart never edits a settings
-# file. `lux enable` adds lux's allow rules to the repo's .claude/settings.json
-# (punt-kit permissions.md §6).
 
 # ── Launch this session's applets ────────────────────────────────────
 # An applet is a session-bound program that owns an entry in the Lux menu and

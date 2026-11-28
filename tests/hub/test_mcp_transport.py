@@ -9,11 +9,13 @@ the disconnect cascade (the live session count returns to zero on close).
 from __future__ import annotations
 
 import json
+import subprocess
 import threading
 import time
 import urllib.request
 from collections.abc import Generator
 from contextlib import AsyncExitStack, contextmanager
+from pathlib import Path
 
 import anyio
 import httpx
@@ -32,6 +34,7 @@ from mcp_types.version import (
 
 from punt_lux.hub.luxd import build_app
 from punt_lux.hub.mcp_transport import SESSION_IDLE_TIMEOUT_SECONDS, McpHttpTransport
+from punt_lux.service.repo_activation import SHARED
 
 pytestmark = pytest.mark.integration
 
@@ -50,6 +53,7 @@ _EXPECTED_TOOLS = frozenset(
         "display_state_get",
         "display_theme_get",
         "display_window_get",
+        "enablement",
         "error_ls",
         "event_ls",
         "frame_remove",
@@ -67,6 +71,7 @@ _EXPECTED_TOOLS = frozenset(
         "scene_update",
         "session_identify",
         "session_ls",
+        "status",
         "topic_publish",
         "topic_recv",
         "topic_subscribe",
@@ -249,6 +254,118 @@ def test_idle_session_is_reaped_and_runs_the_disconnect_cascade(
 def _tool_text(result: CallToolResult) -> str:
     block = result.content[0] if result.content else None
     return block.text if isinstance(block, TextContent) else ""
+
+
+def test_repo_less_scene_calls_follow_advertised_checkout(tmp_path: Path) -> None:
+    """HTTP roots discovery binds repo-less scene calls to the advertised checkout."""
+    subprocess.run(
+        ["/usr/bin/env", "git", "init", "--quiet", str(tmp_path)],
+        check=True,
+        capture_output=True,
+    )
+    marker = tmp_path / SHARED / "enabled"
+
+    async def _drive(port: int) -> None:
+        url = f"http://127.0.0.1:{port}/mcp"
+        async with Client(url, roots=[tmp_path.as_uri()]) as client:
+            dormant = await client.call_tool_mcp("scene_ls", {})
+            assert dormant.is_error
+            assert "Run /lux enable" in _tool_text(dormant)
+            assert str(marker) in _tool_text(dormant)
+            marker.parent.mkdir(parents=True)
+            marker.touch()
+            assert not (await client.call_tool_mcp("scene_ls", {})).is_error
+            marker.unlink()
+            assert (await client.call_tool_mcp("scene_ls", {})).is_error
+
+    with _running_luxd() as port:
+        anyio.run(_drive, port)
+
+
+def test_advertised_checkout_stays_dormant_with_another_repo_declared(
+    tmp_path: Path,
+) -> None:
+    invoking = tmp_path / "invoking"
+    other = tmp_path / "other"
+    for repo in (invoking, other):
+        subprocess.run(
+            ["/usr/bin/env", "git", "init", "--quiet", str(repo)],
+            check=True,
+            capture_output=True,
+        )
+    other_marker = other / SHARED / "enabled"
+    other_marker.parent.mkdir(parents=True)
+    other_marker.touch()
+    invoking_marker = invoking / SHARED / "enabled"
+    identify = {"kind": "mcp-session", "name": "cross-checkout", "repo": str(other)}
+
+    async def _drive(port: int) -> None:
+        url = f"http://127.0.0.1:{port}/mcp"
+        async with Client(url, roots=[invoking.as_uri()]) as client:
+            dormant = await client.call_tool_mcp("session_identify", identify)
+            assert dormant.is_error
+            assert str(invoking_marker) in _tool_text(dormant)
+            invoking_marker.parent.mkdir(parents=True)
+            invoking_marker.touch()
+            assert not (
+                await client.call_tool_mcp("session_identify", identify)
+            ).is_error
+            assert not (await client.call_tool_mcp("scene_ls", {})).is_error
+            invoking_marker.unlink()
+            dormant = await client.call_tool_mcp("scene_ls", {})
+            assert dormant.is_error
+            assert str(invoking_marker) in _tool_text(dormant)
+
+    with _running_luxd() as port:
+        anyio.run(_drive, port)
+
+
+def test_declared_checkout_can_select_a_later_advertised_root(tmp_path: Path) -> None:
+    off = tmp_path / "off"
+    on = tmp_path / "on"
+    for repo in (off, on):
+        subprocess.run(
+            ["/usr/bin/env", "git", "init", "--quiet", str(repo)],
+            check=True,
+            capture_output=True,
+        )
+    off_marker = off / SHARED / "enabled"
+    on_marker = on / SHARED / "enabled"
+    on_marker.parent.mkdir(parents=True)
+    on_marker.touch()
+
+    async def _drive(port: int) -> None:
+        url = f"http://127.0.0.1:{port}/mcp"
+        async with Client(url, roots=[off.as_uri(), on.as_uri()]) as client:
+            dormant = await client.call_tool_mcp("scene_ls", {})
+            assert dormant.is_error
+            assert str(off_marker) in _tool_text(dormant)
+            identified = await client.call_tool_mcp(
+                "session_identify",
+                {"kind": "mcp-session", "name": "second-root", "repo": str(on)},
+            )
+            assert _tool_text(identified) == "identified:second-root"
+            assert not (await client.call_tool_mcp("scene_ls", {})).is_error
+            menu = {
+                "menus": [
+                    {"label": "Checkout", "items": [{"label": "Run", "id": "run"}]}
+                ]
+            }
+            assert not (await client.call_tool_mcp("menu_set", menu)).is_error
+            on_marker.unlink()
+            dormant = await client.call_tool_mcp("scene_ls", {})
+            assert dormant.is_error
+            assert str(on_marker) in _tool_text(dormant)
+            dormant = await client.call_tool_mcp("scene_ls", {})
+            assert dormant.is_error
+            assert str(on_marker) in _tool_text(dormant)
+            on_marker.touch()
+            restored = await client.call_tool_mcp("menu_set", menu)
+            assert not restored.is_error, _tool_text(restored)
+            assert not (await client.call_tool_mcp("scene_ls", {})).is_error
+
+    with _running_luxd() as port:
+        anyio.run(_drive, port)
 
 
 def test_identified_session_can_inspect_and_clear_its_scene() -> None:

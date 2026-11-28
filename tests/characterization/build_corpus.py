@@ -131,22 +131,34 @@ def _ensure_fixture_repos() -> None:
 
 LIFECYCLE_SCENARIOS: tuple[Scenario, ...] = (
     Scenario(
+        name="repo-enablement-relative-path",
+        tool="enablement",
+        inputs={"repo": "relative-checkout", "action": "enable"},
+        setup={},
+    ),
+    Scenario(
+        name="repo-status-relative-path",
+        tool="status",
+        inputs={"repo": "relative-checkout"},
+        setup={},
+    ),
+    Scenario(
         name="display_mode-on",
         tool="display_mode",
         inputs={"repo": _repo_with_display_y()},
-        setup={"display_running": False},
+        setup={"standalone_repo": True},
     ),
     Scenario(
         name="display_mode-off",
         tool="display_mode",
         inputs={"repo": _repo_with_display_n()},
-        setup={"display_running": False},
+        setup={"standalone_repo": True},
     ),
     Scenario(
         name="display_mode-unset",
         tool="display_mode",
         inputs={"repo": _repo_unset()},
-        setup={"display_running": False},
+        setup={"standalone_repo": True},
     ),
     Scenario(
         name="clear-running",

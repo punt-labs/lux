@@ -282,8 +282,9 @@ The first package move installs lifecycle code under `punt_lux.service`, with
 the service managers exported from its `__init__.py`. Private implementation
 modules retain their leading underscores. `HubPaths` and the default Hub port
 live in `punt_lux.kernel`, independent of either the Hub or client SDK.
-Project display-mode file I/O belongs to `service.display_mode_store`; the
-Typer-facing enable/disable orchestration belongs to `cli.display_enablement`.
+Local display-mode file I/O belongs to `service.display_mode_store`.
+Checkout integration belongs to `service.enablement`; the CLI delegates to it
+through `cli.repo_enablement`.
 
 Step 3 merges shared domain and protocol definitions into `punt_lux.wire.model`;
 the Hub and `protocol.pty` were retained for later migrations. The merged

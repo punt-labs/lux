@@ -7,12 +7,16 @@ no longer exists -- only the read route is left to test here.
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 from pathlib import Path
 
 from ._fakes import make_client
 
 
 def test_read_display_mode_defaults_to_off(tmp_path: Path) -> None:
+    git = shutil.which("git") or "/usr/bin/git"
+    subprocess.run([git, "init", "-q", str(tmp_path)], check=True)
     client = make_client()
     resp = client.get("/display-mode", params={"repo": str(tmp_path)})
     assert resp.status_code == 200

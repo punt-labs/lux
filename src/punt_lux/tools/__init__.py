@@ -10,7 +10,7 @@ introspection, ``identify``, pub/sub); luxd serves them over streamable-HTTP ``/
 
 from __future__ import annotations
 
-from punt_lux.tools.server import mcp
+from punt_lux.tools.repo_tools import mcp
 
 from punt_lux.tools.read_tools import (
     get_display_info,

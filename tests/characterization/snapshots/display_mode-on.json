@@ -7,7 +7,7 @@
   ],
   "response": "display:on",
   "setup": {
-    "display_running": false
+    "standalone_repo": true
   },
   "tool": "display_mode"
 }

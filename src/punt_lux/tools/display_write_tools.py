@@ -63,7 +63,7 @@ def display_mode(repo: str) -> str:
     """Read the current display mode: "display:on" or "display:off".
 
     ``repo`` must be the caller's absolute project path; read from
-    ``<repo>/.punt-labs/lux.md``.
+    the main checkout's local preference.
     """
     ctx: CommandCtx[DisplayModeOps] = CommandCtx(
         ops=_core.OPERATIONS, identity=_core._identity()

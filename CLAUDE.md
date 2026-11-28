@@ -560,6 +560,7 @@ documents by meaning, ingest new content, and recall knowledge across sessions.
 - **Search tip**: natural language queries work best ("What were Q3 margins?"
   outperforms "Q3 margins").
 <!-- quarry:end -->
+@.punt-labs/lux/CLAUDE.md
 @.punt-labs/vox/CLAUDE.md
 @.punt-labs/ethos/CLAUDE.md
 @.punt-labs/punt/CLAUDE.md

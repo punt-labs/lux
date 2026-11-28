@@ -35,14 +35,14 @@ class TestGrant:
     def test_creates_settings_with_every_rule(self, tmp_path: Path) -> None:
         change = ProjectPermissions(tmp_path).grant()
         assert change == PermissionChange(changed=_ALL)
-        assert _allow(tmp_path) == list(_ALLOW)
+        assert _allow(tmp_path) == sorted(_ALLOW)
 
     def test_keeps_other_settings_and_rules(self, tmp_path: Path) -> None:
         _write(tmp_path, {"env": {"A": "1"}, "permissions": {"allow": ["Read"]}})
         ProjectPermissions(tmp_path).grant()
         data = json.loads(_settings(tmp_path).read_text())
         assert data["env"] == {"A": "1"}
-        assert data["permissions"]["allow"] == ["Read", *_ALLOW]
+        assert data["permissions"]["allow"] == sorted(["Read", *_ALLOW])
 
     def test_adds_only_missing_rules(self, tmp_path: Path) -> None:
         _write(tmp_path, {"permissions": {"allow": [_ALL[0]]}})
@@ -77,24 +77,26 @@ class TestGrant:
         assert reason in change.error
         assert _settings(tmp_path).read_text() == content
 
-    def test_refuses_symlinked_settings_file(self, tmp_path: Path) -> None:
+    def test_preserves_symlinked_settings_file(self, tmp_path: Path) -> None:
         target = tmp_path / "elsewhere.json"
         target.write_text("{}")
         (tmp_path / ".claude").mkdir()
         _settings(tmp_path).symlink_to(target)
         change = ProjectPermissions(tmp_path).grant()
-        assert "symlink" in change.error
-        assert target.read_text() == "{}"
+        assert not change.error
+        assert _settings(tmp_path).is_symlink()
+        assert json.loads(target.read_text())["permissions"]["allow"] == sorted(_ALLOW)
 
-    def test_refuses_symlinked_claude_dir(self, tmp_path: Path) -> None:
+    def test_preserves_symlinked_claude_dir(self, tmp_path: Path) -> None:
         outside = tmp_path / "outside"
         outside.mkdir()
         repo = tmp_path / "repo"
         repo.mkdir()
         (repo / ".claude").symlink_to(outside)
         change = ProjectPermissions(repo).grant()
-        assert "symlink" in change.error
-        assert list(outside.iterdir()) == []
+        assert not change.error
+        assert (repo / ".claude").is_symlink()
+        assert (outside / "settings.json").is_file()
 
     def test_refuses_home_directory(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -164,29 +166,7 @@ class TestReport:
     ) -> None:
         ProjectPermissions(tmp_path).report(add=True, quiet=True)
         assert capsys.readouterr().err == ""
-        assert _allow(tmp_path) == list(_ALLOW)
-
-
-class TestDisplayModeCommand:
-    def test_mode_grants_and_writes_that_checkout(self, tmp_path: Path) -> None:
-        from typer.testing import CliRunner
-
-        from punt_lux.cli.__main__ import app
-
-        result = CliRunner().invoke(
-            app, ["display", "mode", "on", "--repo", str(tmp_path)]
-        )
-        assert result.exit_code == 0, result.output
-        settings = json.loads((tmp_path / ".claude" / "settings.json").read_text())
-        assert set(_ALLOW) <= set(settings["permissions"]["allow"])
-        assert 'display: "y"' in (tmp_path / ".punt-labs" / "lux.md").read_text()
-
-        result = CliRunner().invoke(
-            app, ["display", "mode", "off", "--repo", str(tmp_path)]
-        )
-        assert result.exit_code == 0, result.output
-        settings = json.loads((tmp_path / ".claude" / "settings.json").read_text())
-        assert not set(_ALLOW) & set(settings["permissions"]["allow"])
+        assert _allow(tmp_path) == sorted(_ALLOW)
 
 
 def test_each_surface_is_allowed_broadly() -> None:
@@ -203,7 +183,7 @@ def test_legacy_flag_rule_is_stripped(tmp_path: Path, *, add: bool) -> None:
     change = perms.grant() if add else perms.revoke()
     assert ("Bash(lux -*)" in change.changed) is not add
     kept = json.loads(settings.read_text())["permissions"]["ask"]
-    assert kept == ["Bash(ls:*)", *(_ASK if add else ())]
+    assert kept == sorted(["Bash(ls:*)", *(_ASK if add else ())])
 
 
 def test_unsafe_verbs_ask_but_no_flag_catch_all() -> None:
@@ -213,7 +193,7 @@ def test_unsafe_verbs_ask_but_no_flag_catch_all() -> None:
     for group in ("hub", "display"):
         for verb in ("install", "uninstall", "start", "stop", "restart"):
             assert f"Bash(lux {group} {verb}:*)" in _ASK
-    assert "Bash(lux display mode:*)" in _ASK
+    assert "Bash(lux display mode:*)" not in _ASK
     assert "Bash(lux hub doctor:*)" in _ASK
     assert "Bash(lux display doctor:*)" in _ASK
     assert "Bash(lux scene:*)" not in _ASK

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import shutil
+import subprocess
 from collections.abc import Callable
 from pathlib import Path
 from typing import cast
@@ -1711,8 +1713,15 @@ class TestRecvTool:
         assert recv() == "none"
 
 
+def _init_display_mode_repo(root: Path) -> None:
+    git = shutil.which("git") or "/usr/bin/git"
+    subprocess.run([git, "init", "-q", str(root)], check=True)
+    (root / ".gitignore").write_text(".punt-labs/local/\n")
+
+
 class TestDisplayModeTool:
     def test_display_mode_returns_on(self, tmp_path: Path) -> None:
+        _init_display_mode_repo(tmp_path)
         (tmp_path / ".punt-labs").mkdir()
         (tmp_path / ".punt-labs" / "lux.md").write_text(
             '---\ndisplay: "y"\n---\n', encoding="utf-8"
@@ -1720,6 +1729,7 @@ class TestDisplayModeTool:
         assert display_mode(repo=str(tmp_path)) == "display:on"
 
     def test_display_mode_returns_off_when_unset(self, tmp_path: Path) -> None:
+        _init_display_mode_repo(tmp_path)
         assert display_mode(repo=str(tmp_path)) == "display:off"
 
 
@@ -1733,8 +1743,9 @@ class TestDisplayModeRepoArg:
     """
 
     def test_set_then_read_roundtrip_in_repo(self, tmp_path: Path) -> None:
+        _init_display_mode_repo(tmp_path)
         assert DisplayModeStore(str(tmp_path)).write("y") is None
-        assert (tmp_path / ".punt-labs" / "lux.md").exists()
+        assert (tmp_path / ".punt-labs/local/lux/display.local.md").exists()
         assert display_mode(repo=str(tmp_path)) == "display:on"
 
         assert DisplayModeStore(str(tmp_path)).write("n") is None
@@ -1745,6 +1756,8 @@ class TestDisplayModeRepoArg:
         repo_b = tmp_path / "b"
         repo_a.mkdir()
         repo_b.mkdir()
+        _init_display_mode_repo(repo_a)
+        _init_display_mode_repo(repo_b)
         DisplayModeStore(str(repo_a)).write("y")
         DisplayModeStore(str(repo_b)).write("n")
         assert display_mode(repo=str(repo_a)) == "display:on"

@@ -1,0 +1,15 @@
+{
+  "inputs": [
+    [
+      "action",
+      "enable"
+    ],
+    [
+      "repo",
+      "relative-checkout"
+    ]
+  ],
+  "response": "error: repo must be an absolute path",
+  "setup": {},
+  "tool": "enablement"
+}

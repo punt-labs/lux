@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import stat
 import subprocess
 import sys
@@ -10,6 +11,16 @@ import time
 from pathlib import Path
 
 import pytest
+
+
+@pytest.fixture
+def enabled_repo(tmp_path: Path) -> Path:
+    git = shutil.which("git") or "/usr/bin/git"
+    subprocess.run([git, "init", "-q", str(tmp_path)], check=True)
+    marker = tmp_path / ".punt-labs/lux/enabled"
+    marker.parent.mkdir(parents=True)
+    marker.touch()
+    return tmp_path
 
 
 @pytest.mark.parametrize(
@@ -23,8 +34,9 @@ import pytest
     ],
 )
 def test_shell_records_decisions_without_standard_streams(
-    tmp_path: Path, scenario: str, message: str
+    enabled_repo: Path, scenario: str, message: str
 ) -> None:
+    tmp_path = enabled_repo
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     (bin_dir / "lux").symlink_to(Path(sys.executable).parent / "lux")
@@ -47,6 +59,7 @@ def test_shell_records_decisions_without_standard_streams(
         text=True,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
+        cwd=enabled_repo,
         env=env,
         check=False,
     )
@@ -73,7 +86,8 @@ def test_shell_records_decisions_without_standard_streams(
 
 @pytest.mark.slow
 @pytest.mark.parametrize("logger_state", ["missing", "failing", "stalled"])
-def test_logging_cannot_prevent_launch(tmp_path: Path, logger_state: str) -> None:
+def test_logging_cannot_prevent_launch(enabled_repo: Path, logger_state: str) -> None:
+    tmp_path = enabled_repo
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     if logger_state == "failing":
@@ -98,6 +112,7 @@ def test_logging_cannot_prevent_launch(tmp_path: Path, logger_state: str) -> Non
         text=True,
         check=False,
         timeout=3,
+        cwd=enabled_repo,
         env={**os.environ, "HOME": str(tmp_path), "PATH": f"{bin_dir}:/usr/bin:/bin"},
     )
     assert result.returncode == 0

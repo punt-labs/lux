@@ -13,7 +13,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Self, final
 
-from punt_lux.service.config import ConfigManager
+from punt_lux.service.display_preference import DisplayPreference
 from punt_lux.wire.operations.common import OpError
 from punt_lux.wire.operations.config import DisplayModeState
 
@@ -24,18 +24,18 @@ __all__ = ["DisplayModeStore"]
 class DisplayModeStore:
     """The display-mode config file for one project; I/O failure becomes a fault."""
 
-    _path: Path
-    __slots__ = ("_path",)
+    _preference: DisplayPreference
+    __slots__ = ("_preference",)
 
     def __new__(cls, repo: str) -> Self:
         self = super().__new__(cls)
-        self._path = Path(repo) / ".punt-labs" / "lux.md"
+        self._preference = DisplayPreference(Path(repo))
         return self
 
     def read(self) -> DisplayModeState | OpError:
         """Return the recorded display mode, or a ``fault`` on config I/O failure."""
         try:
-            config = ConfigManager(config_path=self._path).read()
+            config = self._preference.read()
         except (OSError, UnicodeDecodeError) as exc:
             return self._fault(exc)
         return DisplayModeState.from_config(config.display)
@@ -47,12 +47,12 @@ class DisplayModeStore:
         when nothing failed.
         """
         try:
-            ConfigManager(config_path=self._path).write_field("display", field)
-        except (OSError, UnicodeDecodeError) as exc:
+            self._preference.write(field)
+        except (OSError, ValueError) as exc:
             return self._fault(exc)
         return None
 
     @staticmethod
-    def _fault(exc: OSError | UnicodeDecodeError) -> OpError:
+    def _fault(exc: OSError | ValueError) -> OpError:
         """Map a config-file I/O failure to the engine-side ``fault`` reported out."""
         return OpError(code="fault", reason=f"display-mode config I/O failed: {exc}")

@@ -19,6 +19,7 @@ A ``setup`` dict has this shape::
 
     {
         "display_running": bool,                # patches DisplayPaths.is_running
+        "standalone_repo": bool,                # fixture is not a nested checkout
         "time": float,                          # patches time.time when set
         "session_key": str,                     # ContextVar override (optional)
         "client": {                             # stub DisplayLink method specs
@@ -43,6 +44,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import inspect
 import unittest.mock as mock
 from collections.abc import Callable, Coroutine, Generator, Mapping
 from typing import TYPE_CHECKING, Any, ClassVar
@@ -64,6 +66,7 @@ from punt_lux.operations import Operations
 from punt_lux.operations.display_connection import HubDisplayConnection
 from punt_lux.operations.ports import HubPorts
 from punt_lux.service.display_paths import DisplayPaths
+from punt_lux.tools import repo_tools
 from punt_lux.tools.server import _session_key
 from punt_lux.wire.model import (
     AckMessage,
@@ -252,10 +255,20 @@ class ToolExerciser:
             raise ToolCallError(msg)
         return response
 
+    @staticmethod
+    def repository_tools() -> set[str]:
+        """Return the tool functions declared in the repository module."""
+        return {
+            name
+            for name, fn in inspect.getmembers(repo_tools, inspect.isfunction)
+            if not name.startswith("_") and fn.__module__ == repo_tools.__name__
+        }
+
     @classmethod
     def _resolve(cls, tool: str) -> Callable[..., object]:
         try:
-            fn: object = getattr(tools_pkg, tool)
+            module = repo_tools if tool in cls.repository_tools() else tools_pkg
+            fn: object = getattr(module, tool)
         except AttributeError as exc:
             msg = f"unknown tool: {tool!r}"
             raise ToolCallError(msg) from exc
@@ -381,6 +394,13 @@ class ToolExerciser:
             stubs.append(
                 mock.patch(
                     "punt_lux.operations.display_connection.time", _StubTime(float(now))
+                )
+            )
+
+        if setup.get("standalone_repo"):
+            stubs.append(
+                mock.patch(
+                    "punt_lux.service.repo_activation.Checkout.find", return_value=None
                 )
             )
 

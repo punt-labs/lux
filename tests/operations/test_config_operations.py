@@ -9,6 +9,7 @@ so there is no ``DisplayModeOperations.write_display_mode`` left to test here
 
 from __future__ import annotations
 
+import tempfile
 from pathlib import Path
 
 from punt_lux.operations.config import DisplayModeOperations
@@ -20,12 +21,13 @@ def _ops() -> DisplayModeOperations:
     return DisplayModeOperations()
 
 
-def test_read_reflects_a_prior_write(tmp_path: Path) -> None:
-    fault = DisplayModeStore(str(tmp_path)).write("y")
-    assert fault is None
-    state = _ops().read_display_mode(str(tmp_path))
-    assert isinstance(state, DisplayModeState)
-    assert state.mode == "on"
+def test_read_reflects_a_prior_write() -> None:
+    with tempfile.TemporaryDirectory(dir=Path.home()) as directory:
+        fault = DisplayModeStore(directory).write("y")
+        assert fault is None
+        state = _ops().read_display_mode(directory)
+        assert isinstance(state, DisplayModeState)
+        assert state.mode == "on"
 
 
 def test_read_rejects_a_relative_repo_without_raising() -> None:

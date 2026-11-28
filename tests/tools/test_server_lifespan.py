@@ -52,7 +52,9 @@ class TestSessionStartup:
         """Startup resolves and reads no config file, even when one exists."""
         with (
             patch("punt_lux.service.config.ConfigManager.read") as read,
-            patch("punt_lux.service.config.resolve_config_path") as resolve,
+            patch(
+                "punt_lux.service.display_preference.DisplayPreference._main_checkout"
+            ) as resolve,
         ):
             _run_session_to_completion()
 
@@ -71,7 +73,9 @@ class TestSessionStartup:
         monkeypatch.chdir(Path("/"))
         with (
             patch("punt_lux.service.config.ConfigManager.read") as read,
-            patch("punt_lux.service.config.resolve_config_path") as resolve,
+            patch(
+                "punt_lux.service.display_preference.DisplayPreference._main_checkout"
+            ) as resolve,
             patch.object(peripherals.require(DISPLAY), "asks") as connect,
         ):
             _run_session_to_completion()
@@ -104,7 +108,9 @@ class TestServerImport:
         try:
             with (
                 patch("punt_lux.service.config.ConfigManager.read") as read,
-                patch("punt_lux.service.config.resolve_config_path") as resolve,
+                patch(
+                    "punt_lux.service.display_preference.DisplayPreference._main_checkout"
+                ) as resolve,
             ):
                 importlib.reload(server_module)
                 read.assert_not_called()
