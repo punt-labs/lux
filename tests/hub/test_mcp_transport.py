@@ -320,6 +320,41 @@ def test_advertised_checkout_stays_dormant_with_another_repo_declared(
         anyio.run(_drive, port)
 
 
+def test_declared_checkout_can_select_a_later_advertised_root(tmp_path: Path) -> None:
+    off = tmp_path / "off"
+    on = tmp_path / "on"
+    for repo in (off, on):
+        subprocess.run(
+            ["/usr/bin/env", "git", "init", "--quiet", str(repo)],
+            check=True,
+            capture_output=True,
+        )
+    off_marker = off / SHARED / "enabled"
+    on_marker = on / SHARED / "enabled"
+    on_marker.parent.mkdir(parents=True)
+    on_marker.touch()
+
+    async def _drive(port: int) -> None:
+        url = f"http://127.0.0.1:{port}/mcp"
+        async with Client(url, roots=[off.as_uri(), on.as_uri()]) as client:
+            dormant = await client.call_tool_mcp("scene_ls", {})
+            assert dormant.is_error
+            assert str(off_marker) in _tool_text(dormant)
+            identified = await client.call_tool_mcp(
+                "session_identify",
+                {"kind": "mcp-session", "name": "second-root", "repo": str(on)},
+            )
+            assert _tool_text(identified) == "identified:second-root"
+            assert not (await client.call_tool_mcp("scene_ls", {})).is_error
+            on_marker.unlink()
+            dormant = await client.call_tool_mcp("scene_ls", {})
+            assert dormant.is_error
+            assert str(on_marker) in _tool_text(dormant)
+
+    with _running_luxd() as port:
+        anyio.run(_drive, port)
+
+
 def test_identified_session_can_inspect_and_clear_its_scene() -> None:
     """A session without a query key uses one Hub scope for all its calls."""
 
