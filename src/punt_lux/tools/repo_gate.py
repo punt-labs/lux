@@ -32,8 +32,10 @@ class RepoGate(Middleware):
         context: MiddlewareContext[mt.CallToolRequestParams],
         call_next: CallNext[mt.CallToolRequestParams, ToolResult],
     ) -> ToolResult:
+        if context.message.name in {"enablement", "status"}:
+            return await call_next(context)
         checkout = await self._checkout(context)
-        if context.message.name in {"enablement", "status"} or checkout is None:
+        if checkout is None:
             return await call_next(context)
         state = checkout.state()
         if state.enabled:
@@ -51,8 +53,6 @@ class RepoGate(Middleware):
         ctx = context.fastmcp_context
         checkout = self._declared_checkout(context.message.arguments or {})
         if checkout is not None:
-            if ctx is not None:
-                await ctx.set_state(_ROOT, str(checkout.root))
             return checkout
         identity = core.OPERATIONS.identity_of(scope=core.scope())
         if identity is not None and identity.repo is not None:

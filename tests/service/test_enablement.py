@@ -365,3 +365,16 @@ async def test_mcp_activation_targets_the_invoking_worktree(
         await client.call_tool("enablement", {**args, "action": "disable"})
         assert not Checkout(linked).state().enabled
         assert not checkout.state().enabled
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("anyio_backend", ["asyncio"])
+async def test_mcp_status_does_not_bind_a_checkout(checkout: Checkout) -> None:
+    async with Client(mcp) as client:
+        status = await client.call_tool("status", {"repo": str(checkout.root)})
+        assert "integration: off" in str(status.data)
+        joined = await client.call_tool(
+            "session_identify", {"kind": "mcp-session", "name": "headless"}
+        )
+        assert joined.data == "identified:headless"
+        assert not (await client.call_tool("scene_ls", {})).is_error
