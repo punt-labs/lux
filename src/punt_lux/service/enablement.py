@@ -95,7 +95,7 @@ class Enablement:
 
     def _enable_inherited(self, *, refresh: bool) -> str | None:
         notice = None
-        with EnablementFiles.writes() as batch:
+        with EnablementFiles.WriteBatch.writes() as batch:
             if refresh:
                 guide = self._guide
                 if self.imports.references(guide.guide):
@@ -110,13 +110,12 @@ class Enablement:
 
     def _disable(self, *, opt_out: bool) -> None:
         self._check_personal_paths()
-        self._files.remove()
-        (self.directory / "enabled").unlink(missing_ok=True)
-        with EnablementFiles.writes() as batch:
+        with self._files.integration(add=False) as batch:
             if self._inherits_shared:
                 batch.mark(self._muted)
             if opt_out:
                 batch.mark(self._opting_out)
+            (self.directory / "enabled").unlink(missing_ok=True)
 
     def _migrate_display(self) -> None:
         try:

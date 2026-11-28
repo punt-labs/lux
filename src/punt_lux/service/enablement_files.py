@@ -24,9 +24,14 @@ class EnablementFiles:
     root: Path
     scope: Scope
 
-    @dataclass(frozen=True, slots=True)
     class WriteBatch:
-        undo: ExitStack
+        __slots__ = ("_undo",)
+        _undo: ExitStack
+
+        def __new__(cls) -> EnablementFiles.WriteBatch:
+            self = super().__new__(cls)
+            self._undo = ExitStack()
+            return self
 
         def mark(self, path: Path) -> None:
             if not path.exists():
@@ -40,7 +45,7 @@ class EnablementFiles:
             if original == data:
                 return
             target.write(data)
-            self.undo.callback(self._restore, target, original)
+            self._undo.callback(self._restore, target, original)
 
         @staticmethod
         def _restore(target: ActivationFile, original: bytes | None) -> None:
@@ -49,28 +54,23 @@ class EnablementFiles:
             else:
                 target.write(original)
 
-    @staticmethod
-    @contextmanager
-    def writes() -> Generator[WriteBatch]:
-        with ExitStack() as undo:
-            yield EnablementFiles.WriteBatch(undo)
-            undo.pop_all()
+        @classmethod
+        @contextmanager
+        def writes(cls) -> Generator[EnablementFiles.WriteBatch]:
+            with (batch := cls())._undo as undo:
+                yield batch
+                undo.pop_all()
 
     @contextmanager
     def integration(self, *, add: bool) -> Generator[WriteBatch]:
-        permissions = ProjectPermissions(self.root, self.scope)
         with (
             self.imports.prepare(add=add) as data,
-            permissions.prepare(add=add) as edit,
-            self.writes() as batch,
+            ProjectPermissions(self.root, self.scope).prepare(add=add) as edit,
+            self.WriteBatch.writes() as batch,
         ):
             batch.write(self.imports.host, data)
             batch.write(edit.file, edit.data)
             yield batch
-
-    def remove(self) -> None:
-        with self.integration(add=False):
-            pass
 
 
 @dataclass(frozen=True, slots=True)
