@@ -9,7 +9,7 @@ from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 
 from punt_lux.hub.lifecycle import disconnect_connection
 from punt_lux.tools import tools as core
-from punt_lux.tools._repo_roots import RepoRoots
+from punt_lux.tools._repo_selection import RepoSelection
 
 if TYPE_CHECKING:
     import mcp_types as mt
@@ -42,8 +42,8 @@ class RepoGate(Middleware):
         scope = core.scope()
         identity = core.OPERATIONS.identity_of(scope=scope)
         declared = (context.message.arguments or {}).get("repo")
-        roots = RepoRoots(context.fastmcp_context)
-        return await roots.off_state(declared, identity.repo if identity else None)
+        selection = RepoSelection(context.fastmcp_context)
+        return await selection.off_state(declared, identity)
 
     @staticmethod
     def _disconnect() -> None:

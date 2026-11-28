@@ -350,6 +350,11 @@ def test_declared_checkout_can_select_a_later_advertised_root(tmp_path: Path) ->
             dormant = await client.call_tool_mcp("scene_ls", {})
             assert dormant.is_error
             assert str(on_marker) in _tool_text(dormant)
+            dormant = await client.call_tool_mcp("scene_ls", {})
+            assert dormant.is_error
+            assert str(on_marker) in _tool_text(dormant)
+            on_marker.touch()
+            assert not (await client.call_tool_mcp("scene_ls", {})).is_error
 
     with _running_luxd() as port:
         anyio.run(_drive, port)
