@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import TYPE_CHECKING, Self
 
 from fastmcp.exceptions import ToolError
 
 from punt_lux.hub.lifecycle import disconnect_connection
-from punt_lux.service.repo_activation import Checkout
-from punt_lux.tools._repo_roots import RepoRoots
+from punt_lux.tools._repo_selection import RepoSelection
 
 if TYPE_CHECKING:
     import mcp_types as mt
@@ -18,36 +16,10 @@ if TYPE_CHECKING:
     from fastmcp.tools.base import ToolResult
 
     from punt_lux.operations.facade import Operations
-    from punt_lux.service.repo_activation import ActivationState
     from punt_lux.wire.model.client_identity import ClientIdentity
     from punt_lux.wire.model.scope import Scope
 
 _DORMANT_IDENTITY = "lux:dormant-identity"
-
-
-class RepoSelection:
-    _context: Context | None
-    __slots__ = ("_context",)
-
-    def __new__(cls, context: Context | None) -> Self:
-        self = super().__new__(cls)
-        self._context = context
-        return self
-
-    async def off_state(
-        self, declared: object, selected: object
-    ) -> ActivationState | None:
-        target = self._checkout(declared) or self._checkout(selected)
-        roots = await RepoRoots(self._context).advertised()
-        root = roots[0] if roots and target not in roots else None
-        for checkout in (root, target):
-            if checkout is not None and not (state := checkout.state()).enabled:
-                return state
-        return None
-
-    @staticmethod
-    def _checkout(path: object) -> Checkout | None:
-        return Checkout.find(Path(path)) if isinstance(path, str) else None
 
 
 class RepoSession:
@@ -66,8 +38,7 @@ class RepoSession:
         context: MiddlewareContext[mt.CallToolRequestParams],
         call_next: CallNext[mt.CallToolRequestParams, ToolResult],
     ) -> ToolResult:
-        ctx = context.fastmcp_context
-        session = ctx if ctx is not None and ctx.request_context is not None else None
+        session = self._session_context(context)
         active = self._operations.identity_of(scope=self._scope)
         saved = await self._saved(session) if active is None else None
         selected = active.repo if active is not None else (saved or {}).get("repo")
@@ -85,6 +56,13 @@ class RepoSession:
         if identifying:
             await self._forget(session)
         return result
+
+    @staticmethod
+    def _session_context(
+        context: MiddlewareContext[mt.CallToolRequestParams],
+    ) -> Context | None:
+        ctx = context.fastmcp_context
+        return ctx if ctx is not None and ctx.request_context is not None else None
 
     @staticmethod
     async def _saved(session: Context | None) -> dict[str, object] | None:
